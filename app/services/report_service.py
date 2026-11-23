@@ -679,7 +679,7 @@ def _is_relevant(text: Any, anchors: Set[str]) -> bool:
 def _relevant_root_cause(item: Dict[str, Any], anchors: Set[str]) -> Dict[str, Any]:
     result = {
         key: item[key]
-        for key in ("root_cause", "cause", "confidence")
+        for key in ("root_cause", "cause", "confidence", "confidence_reason")
         if item.get(key) is not None
     }
     evidence = item.get("evidence")
@@ -1044,6 +1044,11 @@ class ReportService:
                     markdown_lines.append(f"  - Mitigation: {mitigation}")
                 if item.get("confidence") is not None:
                     markdown_lines.append(f"  - Confidence: {item['confidence']}")
+                elif item.get("confidence_reason"):
+                    markdown_lines.append(
+                        f"  - Confidence unavailable: "
+                        f"{_display_text(item['confidence_reason'])}"
+                    )
 
         if causal_path:
             markdown_lines.extend([

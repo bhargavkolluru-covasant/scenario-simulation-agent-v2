@@ -5,6 +5,9 @@ import pytest
 from app.tests.kg_validation_support import live_kg_client
 
 
+pytestmark = pytest.mark.integration
+
+
 @pytest.mark.asyncio
 async def test_knowledge_graph_stats() -> None:
     payload = await live_kg_client().get_stats()

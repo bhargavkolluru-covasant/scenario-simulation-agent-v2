@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.services.financial_model_service import FinancialModelService
 from app.services.causal_reasoning_service import CausalReasoningService
@@ -43,6 +43,15 @@ def _kpi_text(record: Dict[str, Any], keys: Tuple[str, ...]) -> str:
 def _amount_label(amount: float, currency: str) -> str:
     formatted = f"{amount:,.2f}".rstrip("0").rstrip(".")
     return f"{currency} {formatted}" if currency else formatted
+
+
+def _optional_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _severity_for_score(score: float) -> str:
@@ -101,8 +110,8 @@ class ImpactAnalysisService:
         metrics = simulation_result.get("metrics", {})
         if not isinstance(metrics, dict):
             metrics = {}
-        disruption_prob = metrics.get("impact_probability", 0.0)
-        risk_score = float(metrics.get("risk_score", 0.0) or 0.0)
+        disruption_prob = _optional_float(metrics.get("impact_probability"))
+        risk_score = _optional_float(metrics.get("risk_score"))
         critical_actions = int(metrics.get("critical_actions_count", 0) or 0)
         overdue_actions = int(metrics.get("overdue_actions_count", 0) or 0)
         compliance_findings = int(metrics.get("compliance_findings_count", 0) or 0)
@@ -131,6 +140,19 @@ class ImpactAnalysisService:
                 kpi_insights=kpi_insights,
                 actions=actions,
                 rules=rules,
+                baseline_relevance_records=[
+                    *(
+                        state.get("dashboard_kpi_records")
+                        if isinstance(state.get("dashboard_kpi_records"), list)
+                        else []
+                    ),
+                    state.get("primary_kpi"),
+                    *(
+                        state.get("supporting_kpis")
+                        if isinstance(state.get("supporting_kpis"), list)
+                        else []
+                    ),
+                ],
             )
         existing_model = financial_model.get(
             "current_exposure",
@@ -182,19 +204,32 @@ class ImpactAnalysisService:
             action_stats, ("compliance_action", "compliance_finding")
         )
         # 1. Dimension: Scenario Impact
-        op_score = min(
-            round(
-                max(
-                    disruption_prob * 100.0,
-                    risk_score,
-                    action_risk_score,
-                ),
-                1,
-            ),
-            100.0,
+        scenario_scores = [
+            score
+            for score in (
+                disruption_prob * 100.0 if disruption_prob is not None else None,
+                risk_score,
+                action_risk_score if action_risk_score > 0 else None,
+            )
+            if score is not None
+        ]
+        op_score = (
+            min(max(round(max(scenario_scores), 1), 0.0), 100.0)
+            if scenario_scores
+            else None
         )
-        op_severity = "CRITICAL" if op_score >= 75 else ("HIGH" if op_score >= 50 else ("MEDIUM" if op_score >= 25 else "LOW"))
-        if operational_kpi:
+        op_severity = (
+            "UNQUANTIFIED"
+            if op_score is None
+            else "CRITICAL"
+            if op_score >= 75
+            else "HIGH"
+            if op_score >= 50
+            else "MEDIUM"
+            if op_score >= 25
+            else "LOW"
+        )
+        if operational_kpi and op_score is not None:
             indicator = _kpi_text(operational_kpi, _KPI_NAME_KEYS)
             indicator_value = _kpi_text(operational_kpi, _KPI_VALUE_KEYS)
             indicator_unit = _kpi_text(operational_kpi, ("kpi_unit", "unit", "uom"))
@@ -206,15 +241,26 @@ class ImpactAnalysisService:
                 + (f" ({indicator_value})" if indicator_value else "")
                 + "."
             )
-        else:
+        elif op_score is not None:
             operational_description = (
                 f"A {_severity_for_score(op_score)} operational risk may affect "
                 "business performance under the scenario."
+            )
+        else:
+            operational_description = (
+                "No risk KPI or calibrated impact probability was available."
             )
         op_dimension = {
             "dimension_name": "Scenario Impact",
             "severity": op_severity,
             "score": op_score,
+            "score_reason": (
+                None
+                if op_score is not None
+                else metrics.get("risk_score_reason")
+                or metrics.get("impact_probability_reason")
+                or "No risk KPI or calibrated impact probability was available."
+            ),
             "impact_description": operational_description,
             "evidence": [],
         }
@@ -230,15 +276,9 @@ class ImpactAnalysisService:
             if isinstance(combined_model, dict)
             else "UNQUANTIFIED"
         ).upper()
-        if combined_financial_risk == "UNQUANTIFIED":
-            combined_financial_risk = "LOW"
-        fin_score = {
-            "CRITICAL": 85.0,
-            "HIGH": 65.0,
-            "MEDIUM": 40.0,
-            "LOW": 15.0,
-        }.get(combined_financial_risk, 15.0)
-        fin_severity = "CRITICAL" if fin_score >= 75 else ("HIGH" if fin_score >= 50 else ("MEDIUM" if fin_score >= 25 else "LOW"))
+        fin_score = None
+        fin_score_reason = "No calibrated financial impact score is available."
+        fin_severity = combined_financial_risk
         current_names = [
             str(item.get("name"))
             for item in existing_items[:3]
@@ -278,6 +318,7 @@ class ImpactAnalysisService:
             "dimension_name": "Financial & Liquidity Exposure",
             "severity": fin_severity,
             "score": fin_score,
+            "score_reason": fin_score_reason,
             "impact_description": fin_description,
             "evidence": fin_evidence,
         }
@@ -309,12 +350,22 @@ class ImpactAnalysisService:
             compliance_findings,
             int(compliance_action_count),
         )
-        comp_score = min(violations_count * 20.0, 100.0)
-        comp_severity = "CRITICAL" if comp_score >= 75 else ("HIGH" if comp_score >= 50 else ("MEDIUM" if comp_score >= 25 else "LOW"))
+        comp_score = min(violations_count * 20.0, 100.0) if violations_count else None
+        comp_severity = (
+            "CRITICAL" if comp_score is not None and comp_score >= 75 else
+            "HIGH" if comp_score is not None and comp_score >= 50 else
+            "MEDIUM" if comp_score is not None and comp_score >= 25 else
+            "LOW" if comp_score is not None else "UNQUANTIFIED"
+        )
         comp_dimension = {
             "dimension_name": "Regulatory & Internal Rule Compliance",
             "severity": comp_severity,
             "score": comp_score,
+            "score_reason": (
+                "Derived from the count of identified compliance findings."
+                if comp_score is not None
+                else "No calibrated compliance impact score is available."
+            ),
             "impact_description": (
                 "Compliance or governance requirements may be affected under the scenario."
                 if violations_count
@@ -325,14 +376,34 @@ class ImpactAnalysisService:
 
         # 4. Dimension: Additional Scenario Risk
         additional_risk_score = risk_score
-        mkt_severity = "HIGH" if additional_risk_score >= 50 else ("MEDIUM" if additional_risk_score >= 25 else "LOW")
+        mkt_severity = (
+            "UNQUANTIFIED"
+            if additional_risk_score is None
+            else "HIGH"
+            if additional_risk_score >= 50
+            else "MEDIUM"
+            if additional_risk_score >= 25
+            else "LOW"
+        )
         mkt_dimension = {
             "dimension_name": "Additional Scenario Risk",
             "severity": mkt_severity,
-            "score": round(additional_risk_score, 1),
+            "score": (
+                round(additional_risk_score, 1)
+                if additional_risk_score is not None
+                else None
+            ),
+            "score_reason": (
+                None
+                if additional_risk_score is not None
+                else metrics.get("risk_score_reason")
+                or "No risk KPI was available for this dashboard."
+            ),
             "impact_description": (
                 f"A {_severity_for_score(additional_risk_score)} additional business risk remains "
                 "under the simulated conditions."
+                if additional_risk_score is not None
+                else "No risk KPI was available to quantify additional scenario risk."
             ),
             "evidence": [],
         }
@@ -402,8 +473,27 @@ class ImpactAnalysisService:
         dimensions = [op_dimension, fin_dimension, comp_dimension, mkt_dimension]
         if graph_is_usable:
             dimensions.append(graph_dimension)
-        overall_score = round(sum(d["score"] for d in dimensions) / len(dimensions), 1)
-        overall_severity = "CRITICAL" if overall_score >= 70 else ("HIGH" if overall_score >= 50 else ("MEDIUM" if overall_score >= 25 else "LOW"))
+        scored_dimensions = [
+            dimension["score"]
+            for dimension in dimensions
+            if isinstance(dimension.get("score"), (int, float))
+        ]
+        overall_score = (
+            round(sum(scored_dimensions) / len(scored_dimensions), 1)
+            if scored_dimensions
+            else None
+        )
+        overall_severity = (
+            "UNQUANTIFIED"
+            if overall_score is None
+            else "CRITICAL"
+            if overall_score >= 70
+            else "HIGH"
+            if overall_score >= 50
+            else "MEDIUM"
+            if overall_score >= 25
+            else "LOW"
+        )
 
         affected_entities = []
         for item in related_entities:
@@ -432,6 +522,11 @@ class ImpactAnalysisService:
 
         impact_result = {
             "overall_impact_score": overall_score,
+            "overall_impact_score_reason": (
+                None
+                if overall_score is not None
+                else "No quantified impact dimensions were available."
+            ),
             "overall_severity": overall_severity,
             "dimensions": dimensions,
             "violations_count": violations_count,
@@ -443,6 +538,10 @@ class ImpactAnalysisService:
             "financial_exposure_direction": financial_exposure_direction,
             "financial_exposure_evidence": financial_evidence,
             "financial_model": financial_model,
+            "risk_score": risk_score,
+            "risk_score_reason": metrics.get("risk_score_reason"),
+            "impact_probability": disruption_prob,
+            "impact_probability_reason": metrics.get("impact_probability_reason"),
             "financial_reasoning": (
                 scenario_model.get("financial_reasoning", "")
                 if isinstance(scenario_model, dict)
@@ -453,7 +552,11 @@ class ImpactAnalysisService:
                 if isinstance(scenario_model, dict)
                 else []
             ),
-            "financial_confidence": financial_model.get("confidence", 0.0),
+            "financial_confidence": financial_model.get("confidence"),
+            "financial_confidence_reason": financial_model.get(
+                "confidence_reason",
+                "No source KPI confidence data was provided.",
+            ),
             "blast_radius_entities": blast_radius_entities,
             "affected_entities": affected_entities,
             "dependency_impact": {

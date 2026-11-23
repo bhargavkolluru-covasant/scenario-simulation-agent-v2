@@ -3,6 +3,9 @@ import pytest
 from app.clients.knowledge_graph_client import KnowledgeGraphClient
 
 
+pytestmark = pytest.mark.integration
+
+
 @pytest.mark.asyncio
 async def test_knowledge_graph_connectivity():
     client = KnowledgeGraphClient()

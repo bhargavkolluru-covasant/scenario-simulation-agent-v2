@@ -165,6 +165,19 @@ class SimulationService:
             kpi_insights=kpi_insights,
             actions=actions,
             rules=rules,
+            baseline_relevance_records=[
+                *(
+                    state.get("dashboard_kpi_records")
+                    if isinstance(state.get("dashboard_kpi_records"), list)
+                    else []
+                ),
+                state.get("primary_kpi"),
+                *(
+                    state.get("supporting_kpis")
+                    if isinstance(state.get("supporting_kpis"), list)
+                    else []
+                ),
+            ],
         )
         existing_totals = financial_model["current_exposure"]["total_by_currency"]
         scenario_totals = financial_model["scenario_exposure"][
@@ -191,15 +204,20 @@ class SimulationService:
         risk_score = _named_number(
             kpi_records, ("risk", "exposure", "incident", "compliance")
         )
+        risk_score_reason = None
         if risk_score is None:
-            risk_score = 35.0
-        if 0 <= risk_score <= 1:
-            risk_score *= 100.0
+            risk_score_reason = "No risk KPI was available for this dashboard."
+        else:
+            if 0 <= risk_score <= 1:
+                risk_score *= 100.0
+            risk_score = min(max(risk_score, 0), 100)
+        risk_score_output = (
+            round(risk_score, 2) if risk_score is not None else None
+        )
 
-        risk_score = min(max(risk_score, 0), 100)
-        impact_probability = min(
-            round((risk_score / 100.0) * (0.5 + min(change_pct, 100.0) / 200.0), 3),
-            0.95,
+        impact_probability = None
+        impact_probability_reason = (
+            "No calibrated impact probability was available from a source metric."
         )
 
         action_count = len(actions) if isinstance(actions, list) else 0
@@ -242,7 +260,9 @@ class SimulationService:
             "target_entities": [target_entity] if target_entity else [],
             "parameters": {
                 "impact_probability": impact_probability,
-                "risk_score": round(risk_score, 2),
+                "impact_probability_reason": impact_probability_reason,
+                "risk_score": risk_score_output,
+                "risk_score_reason": risk_score_reason,
                 "scenario_change_percentage": change_pct,
                 "dashboard_records_count": len(dashboard_rows),
                 "matched_records_count": len(matched_records),
@@ -266,7 +286,9 @@ class SimulationService:
                 "scenario_incremental_financial_exposure": round(scenario_exposure, 2),
                 "financial_model": financial_model,
                 "impact_probability": impact_probability,
-                "risk_score": round(risk_score, 2),
+                "impact_probability_reason": impact_probability_reason,
+                "risk_score": risk_score_output,
+                "risk_score_reason": risk_score_reason,
                 "compliance_findings_count": compliance_count,
                 "critical_actions_count": critical_action_count,
                 "overdue_actions_count": overdue_action_count,

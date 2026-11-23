@@ -211,6 +211,9 @@ def build_executive_context(state: Dict[str, Any]) -> Dict[str, Any]:
         "severity": _short_text(scenario_model.get("severity"), 12),
         "direction": _short_text(scenario_model.get("direction"), 12),
         "confidence": _short_text(scenario_model.get("confidence"), 12),
+        "confidence_reason": _short_text(
+            scenario_model.get("confidence_reason"), 120
+        ),
         "estimated_amount_by_currency": {
             _short_text(currency, 8): _short_text(amount, 30)
             for currency, amount in list(scenario_amounts.items())[:3]
@@ -672,7 +675,22 @@ class ExplainabilityService:
             )
         if isinstance(scenario_model, dict):
             severity_label = scenario_model.get("severity", "UNQUANTIFIED")
-            confidence_label = float(scenario_model.get("confidence", 0.0) or 0.0)
+            confidence_value = scenario_model.get("confidence")
+            confidence_reason = scenario_model.get(
+                "confidence_reason",
+                "Insufficient evidence available.",
+            )
+            if confidence_value is None:
+                confidence_label = (
+                    f"confidence unavailable: {confidence_reason}"
+                )
+            else:
+                try:
+                    confidence_label = f"{float(confidence_value):.0%} confidence"
+                except (TypeError, ValueError):
+                    confidence_label = (
+                        f"confidence unavailable: {confidence_reason}"
+                    )
             amounts = scenario_model.get("estimated_amount_by_currency", {})
             amount_summary = (
                 "; ".join(
@@ -690,7 +708,7 @@ class ExplainabilityService:
             ) if isinstance(drivers, list) else ""
             financial_parts.append(
                 f"Scenario impact is assessed as {severity_label} severity "
-                f"({confidence_label:.0%} confidence): {amount_summary}."
+                f"({confidence_label}): {amount_summary}."
                 + (f" Principal drivers are {driver_summary}." if driver_summary else "")
                 + " Estimates are evidence-based indicators, not realized losses."
             )

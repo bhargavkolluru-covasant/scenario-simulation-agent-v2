@@ -3,6 +3,9 @@ import pytest
 from app.clients.rules_client import RulesClient
 
 
+pytestmark = pytest.mark.integration
+
+
 @pytest.mark.asyncio
 async def test_rules_connectivity():
     client = RulesClient()

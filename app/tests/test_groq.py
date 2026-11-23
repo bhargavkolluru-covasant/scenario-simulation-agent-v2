@@ -8,6 +8,7 @@ from app.services.groq_service import GroqService
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 async def test_groq_live_says_hello():
     if not settings.GROQ_API_KEY:
         pytest.skip("GROQ_API_KEY is not configured.")

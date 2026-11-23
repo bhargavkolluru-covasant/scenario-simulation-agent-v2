@@ -1,13 +1,22 @@
 import logging
+import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field, model_validator
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
 
 from app.config.settings import settings
 from app.graph.workflow import workflow
 
 logger = logging.getLogger(__name__)
+
+_API_ERROR_DETAIL = "We couldn't run this simulation right now. Please try again."
+_INTERNAL_ERROR_REDACTION = "Internal processing error."
+_REPORT_ERROR_REDACTION = "Report generation failed."
+
+security = HTTPBearer()
 
 router = APIRouter(
     prefix="/api/v1/simulation",
@@ -25,75 +34,18 @@ class SimulationRequest(BaseModel):
             "example": {
                 "query": "What if Horizon Heights handover is delayed by 90 days?",
                 "dashboard_id": "dash_3e633ae526ae",
-                "enterprise_id": "ent_40cb7d18dca2",
-                "domain_ids": ["re_core_master", "..."],
-                "scope_id": "ec6bae6f...",
-                "access_token": "******",
             }
         }
     }
-
-    # model_config = {
-    #     "json_schema_extra": {
-    #         "example": {
-    #             "query": "What if Horizon Heights handover is delayed by 90 days?",
-    #             "dashboard_id": "dash_3e633ae526ae",
-    #             "enterprise_id": "ent_40cb7d18dca2",
-    #             "domain_ids": ["re_core_master", "..."],
-    #             "scope_id": "ec6bae6f...",
-    #             "access_token": "Bearer token",
-    #         }
-    #     }
-    # }
 
     query: str = Field(
         ...,
         description="Natural language business scenario query"
     )
-
-    scope_id: Optional[str] = Field(
-        default=None,
-        description=(
-            "Optional legacy ARIIA scope id for backward compatibility."
-        )
-    )
-    enterprise_id: Optional[str] = Field(
-        default=None,
-        description="ARIIA enterprise context; defaults to ARIIA_ENTERPRISE_ID.",
-    )
-    domain_ids: List[str] = Field(
-        default_factory=lambda: settings.domain_ids,
-        description="ARIIA domain context; defaults to ARIIA_DOMAIN_IDS.",
-    )
     dashboard_id: Optional[str] = Field(
         default=None,
         description="Dashboard to use; defaults to DASHBOARD_ID.",
     )
-    access_token: Optional[str] = Field(
-        default=None,
-        description="ARIIA access token; defaults to ARIIA_ACCESS_TOKEN.",
-    )
-
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_domain_context(cls, values: Any) -> Any:
-        if not isinstance(values, dict):
-            return values
-        values = dict(values)
-        legacy_domain_id = values.pop("domain_id", None)
-        domain_ids = values.get("domain_ids")
-        if domain_ids is None and legacy_domain_id:
-            domain_ids = legacy_domain_id
-        if domain_ids is None:
-            values.pop("domain_ids", None)
-        if isinstance(domain_ids, str):
-            domain_ids = domain_ids.split(",")
-        if isinstance(domain_ids, list):
-            values["domain_ids"] = [
-                domain.strip() if isinstance(domain, str) else domain
-                for domain in domain_ids
-            ]
-        return values
 
 
 class SimulationResponse(BaseModel):
@@ -104,6 +56,24 @@ class SimulationResponse(BaseModel):
     report: Dict[str, Any]
 
     state: Optional[Dict[str, Any]] = None
+    degraded_features: Optional[List[str]] = None
+
+
+def _sanitize_error_details(value: Any) -> Any:
+    if isinstance(value, dict):
+        report_failed = value.get("report_id") == "ERR-REPORT"
+        sanitized = {}
+        for key, item in value.items():
+            if isinstance(key, str) and key.lower() == "error":
+                sanitized[key] = _INTERNAL_ERROR_REDACTION
+            elif report_failed and key == "markdown_report":
+                sanitized[key] = _REPORT_ERROR_REDACTION
+            else:
+                sanitized[key] = _sanitize_error_details(item)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_error_details(item) for item in value]
+    return value
 
 
 # =====================================================
@@ -112,13 +82,23 @@ class SimulationResponse(BaseModel):
 
 @router.post(
     "/simulate",
-    response_model=SimulationResponse
+    response_model=SimulationResponse,
+    response_model_exclude_none=True,
 )
 async def run_simulation(
     payload: SimulationRequest,
     include_full_state: bool = Query(
         default=False,
         description="Include complete workflow execution state"
+    ),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    x_enterprise_id: Optional[str] = Header(
+        default=None,
+        alias="X-Enterprise-Id",
+    ),
+    x_domain_id: Optional[str] = Header(
+        default=None,
+        alias="X-Domain-Id",
     ),
 ):
     """
@@ -156,17 +136,37 @@ async def run_simulation(
         f"query='{payload.query}'"
     )
 
+    # Resolve request context exclusively from caller headers.
+    access_token = credentials.credentials
+    logger.info(
+        "[API] Caller authorization token received: %s",
+        bool(access_token),
+    )
+
+    enterprise_id = (
+        x_enterprise_id.strip()
+        if isinstance(x_enterprise_id, str)
+        else ""
+    )
+    raw_domain_ids = (
+        x_domain_id
+        if isinstance(x_domain_id, str)
+        else ""
+    )
+    domain_ids = [
+        domain.strip()
+        for domain in raw_domain_ids.split(",")
+        if domain.strip()
+    ]
+    if not enterprise_id or not domain_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="X-Enterprise-Id and X-Domain-Id headers are required.",
+        )
+
     try:
-
-        # -------------------------------------------------
-        # Resolve ARIIA tenant context; legacy scope remains optional.
-        # -------------------------------------------------
-        enterprise_id = payload.enterprise_id or settings.enterprise_id
-        domain_ids = payload.domain_ids or settings.domain_ids
-        scope_id = payload.scope_id or settings.scope_id or ""
-        access_token = payload.access_token or settings.access_token
+        scope_id = settings.scope_id or ""
         dashboard_id = payload.dashboard_id or settings.DASHBOARD_ID or ""
-
         logger.info(
             "[API] Executing simulation for enterprise=%s domains=%s",
             enterprise_id,
@@ -194,6 +194,7 @@ async def run_simulation(
             "status": "STARTING",
             "current_node": "api",
             "error": None,
+            "degraded_features": [],
 
             # Scenario
             "scenario": {},
@@ -250,20 +251,45 @@ async def run_simulation(
             "final_report",
             {}
         )
+        final_report = _sanitize_error_details(final_report)
+        if not isinstance(final_report, dict):
+            final_report = {}
 
         status = result_state.get(
             "status",
-            "COMPLETED"
+            "FAILED",
         )
+        degraded_features = result_state.get("degraded_features", [])
+        if not isinstance(degraded_features, list):
+            degraded_features = []
+        report_is_empty = (
+            not isinstance(final_report, dict)
+            or not str(final_report.get("markdown_report") or "").strip()
+        )
+        if report_is_empty:
+            if status in {"COMPLETED", "COMPLETED_WITH_DEGRADED_FEATURES"}:
+                status = "COMPLETED_WITH_DEGRADED_FEATURES"
+                if "report_enrichment" not in degraded_features:
+                    degraded_features.append("report_enrichment")
+            else:
+                status = "FAILED"
+
+        if status == "FAILED":
+            return JSONResponse(
+                status_code=500,
+                content={"status": "FAILED"},
+            )
 
         response = {
             "status": status,
             "query": payload.query,
             "report": final_report,
         }
+        if degraded_features:
+            response["degraded_features"] = degraded_features
 
         if include_full_state:
-            response_state = dict(result_state)
+            response_state = _sanitize_error_details(dict(result_state))
             if response_state.get("access_token"):
                 response_state["access_token"] = "******"
             response["state"] = response_state
@@ -275,16 +301,23 @@ async def run_simulation(
 
         return response
 
-    except HTTPException:
-        raise
-
     except Exception as exc:
-
-        logger.exception(
-            "[API] Simulation execution failed"
+        request_id = str(uuid.uuid4())
+        status_code = (
+            exc.status_code
+            if isinstance(exc, HTTPException)
+            else 500
         )
 
-        raise HTTPException(
-            status_code=500,
-            detail=f"Simulation execution failed: {str(exc)}",
+        logger.exception(
+            "[API] Simulation execution failed. request_id=%s",
+            request_id,
+        )
+
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "detail": _API_ERROR_DETAIL,
+                "request_id": request_id,
+            },
         )

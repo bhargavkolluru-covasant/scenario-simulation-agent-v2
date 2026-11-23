@@ -10,6 +10,7 @@ from app.clients.knowledge_graph_client import KnowledgeGraphClient
 from app.clients.rules_client import RulesClient
 from app.config.settings import settings
 from app.services.scenario_parser_service import ScenarioParserService
+from app.services.llm_gateway import LLMGateway
 from app.nodes.context_node import context_node
 from app.graph.workflow import workflow
 
@@ -47,7 +48,11 @@ async def test_platform_clients_use_confirmed_routes_and_tenant_headers(monkeypa
         return {"total_actions": 0}
 
     monkeypatch.setattr(BaseClient, "get", fake_get)
-    dashboard_client = DashboardClient(base_url="https://platform.example")
+    dashboard_client = DashboardClient(
+        base_url="https://platform.example",
+        enterprise_id="enterprise-test",
+        domain_ids=["domain-test"],
+    )
     kpi_client = KPIInsightsClient(base_url="https://platform.example")
     actions_client = ActionsClient(base_url="https://platform.example")
 
@@ -67,8 +72,8 @@ async def test_platform_clients_use_confirmed_routes_and_tenant_headers(monkeypa
         "/api/v1/metrics/insights/actions",
         "/api/v1/metrics/actions-stats",
     ]
-    assert dashboard_client._get_headers()["X-Enterprise-Id"] == settings.ARIIA_ENTERPRISE_ID
-    assert dashboard_client._get_headers()["X-Domain-Id"] == ",".join(settings.domain_ids)
+    assert dashboard_client._get_headers()["X-Enterprise-Id"] == "enterprise-test"
+    assert dashboard_client._get_headers()["X-Domain-Id"] == "domain-test"
     assert BaseClient(
         base_url="https://platform.example",
         auth_token="integration-test-token",
@@ -87,6 +92,22 @@ async def test_platform_clients_use_confirmed_routes_and_tenant_headers(monkeypa
 @pytest.mark.asyncio
 async def test_full_simulation_workflow(monkeypatch):
     print("\n================== Testing Full Simulation Agent Workflow ==================")
+
+    class OfflineLLM:
+        is_configured = False
+
+        async def generate_json(self, *args, **kwargs):
+            return {}
+
+        async def generate_text(self, *args, **kwargs):
+            return ""
+
+    monkeypatch.setattr(
+        LLMGateway,
+        "get_service",
+        staticmethod(lambda: OfflineLLM()),
+    )
+
     monkeypatch.setattr(
         ScenarioParserService,
         "parse",
@@ -105,6 +126,7 @@ async def test_full_simulation_workflow(monkeypatch):
         "get_dashboard_data",
         AsyncMock(return_value={
             "widgets": [{
+                "title": "Construction Risk",
                 "data": {
                     "rows": [{
                         "entity_reference": "Acme Project",
@@ -171,6 +193,9 @@ async def test_full_simulation_workflow(monkeypatch):
     initial_state = {
         "query": "Simulate a construction delay for Acme Project",
         "scope_id": "test-scope",
+        "enterprise_id": "enterprise-test",
+        "domain_ids": ["domain-test"],
+        "access_token": "workflow-test-token",
         "dashboard_id": "test-dashboard",
         "semantic_entities": [],
     }
@@ -188,6 +213,7 @@ async def test_full_simulation_workflow(monkeypatch):
     print("Total Recommendations:", len(result.get("recommendations", [])))
 
     assert "final_report" in result, "final_report must be present in workflow output"
+    assert result["status"] == "COMPLETED"
     assert "report_id" in final_report, "Report must contain report_id"
     assert "simulation_result" in result, "simulation_result must be present in workflow output"
     assert "impact_result" in result, "impact_result must be present in workflow output"
@@ -213,9 +239,10 @@ async def test_full_simulation_workflow(monkeypatch):
     assert result["final_report"]["primary_risk"]["name"] in (
         result["final_report"]["markdown_report"]
     )
-    assert result["final_report"]["markdown_report"].count(
-        result["final_report"]["business_query"]
-    ) == 1
+    assert result["final_report"]["business_query"] == (
+        "Simulate a construction delay for Acme Project"
+    )
+    assert result["final_report"]["business_query"] in result["final_report"]["markdown_report"]
     assert "## Executive Summary" in result["final_report"]["markdown_report"]
     assert "## Executive Decision Required" in result["final_report"]["markdown_report"]
     assert "## Recommended Actions" in result["final_report"]["markdown_report"]

@@ -3,6 +3,9 @@ import pytest
 from app.clients.market_risk_client import MarketRiskClient
 
 
+pytestmark = pytest.mark.integration
+
+
 @pytest.mark.asyncio
 async def test_market_risk_connectivity():
     client = MarketRiskClient()

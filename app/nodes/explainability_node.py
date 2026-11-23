@@ -28,6 +28,7 @@ async def explainability_node(
 
     except Exception as exc:
         logger.error(f"[explainability_node] Error during explanation generation: {exc}", exc_info=True)
+        state["status"] = "FAILED"
         state["explanation"] = {
             "executive_summary": (
                 "A complete executive narrative could not be generated. "
@@ -70,7 +71,7 @@ async def explainability_node(
 
 class ExplainabilityNode:
     """Class wrapper for backward compatibility."""
-
+    
     def __init__(self, service: Optional[ExplainabilityService] = None):
         self.service = service or ExplainabilityService()
 

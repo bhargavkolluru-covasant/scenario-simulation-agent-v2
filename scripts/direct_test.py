@@ -19,4 +19,5 @@ async def main():
         print("Body:", response.text)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

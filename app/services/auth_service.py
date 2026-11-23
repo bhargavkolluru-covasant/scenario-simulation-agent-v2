@@ -27,10 +27,9 @@ class AuthService:
 
     def get_token(self) -> Optional[str]:
         """
-        Retrieve the active ARIIA bearer access token.
-        Falls back to configured settings if no explicit token was passed.
+        Retrieve the explicitly supplied caller access token.
         """
-        token = self._custom_token or settings.access_token
+        token = self._custom_token
         if token:
             clean = token.strip()
             if clean.lower().startswith("bearer "):
@@ -110,7 +109,7 @@ class AuthService:
     async def refresh_token(self) -> Optional[str]:
         """
         Extensible hook for future automated OAuth2 / refresh token exchange.
-        Currently returns the static configured token.
+        Currently returns the explicitly supplied caller token.
         """
         logger.debug("[AuthService] Token refresh requested (extensible framework hook).")
         # Future implementation: post to /api/v1/auth/refresh with refresh_token

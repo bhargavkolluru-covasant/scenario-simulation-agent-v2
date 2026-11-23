@@ -6,6 +6,9 @@ from app.services.knowledge_graph_service import KnowledgeGraphService
 from app.tests.kg_validation_support import live_kg_client
 
 
+pytestmark = pytest.mark.integration
+
+
 @pytest.mark.asyncio
 async def test_knowledge_graph_validation_report() -> None:
     client = live_kg_client()

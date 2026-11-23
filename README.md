@@ -148,9 +148,7 @@ Secure interim financing
 - Python
 - FastAPI
 - LangGraph
-- Groq
-- Gemini
-- GitHub Copilot
+- Groq (only LLM provider)
 - Semantic Dashboard Intelligence
 
 ---

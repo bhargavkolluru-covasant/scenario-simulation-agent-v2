@@ -6,8 +6,10 @@ class SimulationMetrics(BaseModel):
     baseline_financial_exposure: float = 0.0
     simulated_financial_exposure: float = 0.0
     exposure_variance_percentage: float = 0.0
-    impact_probability: float = 0.0
-    risk_score: float = 0.0
+    impact_probability: Optional[float] = None
+    impact_probability_reason: Optional[str] = None
+    risk_score: Optional[float] = None
+    risk_score_reason: Optional[str] = None
     compliance_findings_count: int = 0
 
 
@@ -24,14 +26,16 @@ class SimulationResult(BaseModel):
 class ImpactDimension(BaseModel):
     dimension_name: str
     severity: str  # CRITICAL, HIGH, MEDIUM, LOW
-    score: float  # 0-100
+    score: Optional[float] = None
+    score_reason: Optional[str] = None
     impact_description: str
     evidence: List[str] = Field(default_factory=list)
 
 
 class ImpactResult(BaseModel):
-    overall_impact_score: float = 0.0
-    overall_severity: str = "LOW"
+    overall_impact_score: Optional[float] = None
+    overall_impact_score_reason: Optional[str] = None
+    overall_severity: str = "UNQUANTIFIED"
     dimensions: List[ImpactDimension] = Field(default_factory=list)
     violations_count: int = 0
     triggered_rules: List[Dict[str, Any]] = Field(default_factory=list)

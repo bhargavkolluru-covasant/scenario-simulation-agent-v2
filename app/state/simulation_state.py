@@ -76,3 +76,5 @@ class SimulationState(TypedDict, total=False):
     current_node: Optional[str]
     status: Optional[str]
     error: Optional[str]
+    failed_node: Optional[str]
+    degraded_features: List[str]

@@ -225,7 +225,7 @@ def _record_value(record: Dict[str, Any]) -> Any:
     )
 
 
-def _confidence(record: Dict[str, Any]) -> float:
+def _confidence(record: Dict[str, Any]) -> Optional[float]:
     raw = next(
         (record.get(key) for key in _CONFIDENCE_KEYS if record.get(key) not in (None, "")),
         None,
@@ -233,28 +233,70 @@ def _confidence(record: Dict[str, Any]) -> float:
     try:
         value = float(raw)
     except (TypeError, ValueError):
-        return 0.5
+        return None
     if value > 1:
         value /= 100
     return min(max(value, 0.0), 1.0)
 
 
-def _importance(record: Dict[str, Any]) -> float:
-    raw = next(
+def _raw_importance(record: Dict[str, Any]) -> Any:
+    return next(
         (record.get(key) for key in _IMPORTANCE_KEYS if record.get(key) not in (None, "")),
         None,
     )
-    if isinstance(raw, str):
-        levels = {"CRITICAL": 1.0, "HIGH": 0.85, "MEDIUM": 0.6, "LOW": 0.35}
-        if raw.upper() in levels:
-            return levels[raw.upper()]
+
+
+def _importance(record: Dict[str, Any]) -> Optional[float]:
+    raw = _raw_importance(record)
+    if isinstance(raw, str) and raw.strip().upper() in {
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL",
+    }:
+        return None
     try:
         value = float(raw)
     except (TypeError, ValueError):
-        return 0.6
+        return None
     if value > 1:
         value /= 100
     return min(max(value, 0.0), 1.0)
+
+
+def _confidence_metadata(record: Dict[str, Any]) -> Dict[str, Any]:
+    confidence = _confidence(record)
+    if confidence is None:
+        return {
+            "confidence": None,
+            "confidence_reason": "No source KPI confidence data was provided.",
+        }
+    return {"confidence": confidence}
+
+
+def _importance_metadata(record: Dict[str, Any]) -> Dict[str, Any]:
+    raw = _raw_importance(record)
+    if isinstance(raw, str) and raw.upper() in {
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL",
+    }:
+        return {
+            "business_importance": raw.upper(),
+            "business_importance_reason": (
+                "Qualitative importance supplied by the source KPI."
+            ),
+        }
+    importance = _importance(record)
+    if importance is None:
+        return {
+            "business_importance": None,
+            "business_importance_reason": (
+                "No numeric source KPI business-importance data was provided."
+            ),
+        }
+    return {"business_importance": importance}
 
 
 def _currency(value: Any, unit: Any = None) -> str:
@@ -408,6 +450,80 @@ def _match_score(scenario_tokens: set[str], record: Dict[str, Any]) -> float:
     return len(overlap) / max(len(scenario_tokens), 1)
 
 
+def _relevance_score(record: Dict[str, Any], keys: Iterable[str]) -> Optional[float]:
+    scoring = record.get("_scoring")
+    scoring = scoring if isinstance(scoring, dict) else {}
+    for key in keys:
+        raw = record.get(key)
+        if raw in (None, ""):
+            raw = scoring.get(key)
+        try:
+            score = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if score > 1:
+            score /= 100
+        return min(max(score, 0.0), 1.0)
+    return None
+
+
+def _matching_relevance_records(
+    record: Dict[str, Any],
+    value: float,
+    relevance_records: Iterable[Any],
+) -> List[Dict[str, Any]]:
+    name = _record_name(record).strip().casefold()
+    matches = []
+    for candidate in relevance_records:
+        if not isinstance(candidate, dict):
+            continue
+        if _record_name(candidate).strip().casefold() != name:
+            continue
+        candidate_value = _number(
+            candidate.get("raw_value")
+            if candidate.get("raw_value") not in (None, "")
+            else _record_value(candidate)
+        )
+        if candidate_value is not None and round(candidate_value, 2) != round(value, 2):
+            continue
+        matches.append(candidate)
+    return matches
+
+
+def _baseline_scores(
+    item: Dict[str, Any],
+    relevance_records: Iterable[Any],
+) -> Dict[str, Optional[float]]:
+    record = item["record"]
+    sources = [record, *_matching_relevance_records(
+        record,
+        item["value"],
+        relevance_records,
+    )]
+
+    def best_score(keys: Iterable[str]) -> Optional[float]:
+        scores = [
+            score
+            for source in sources
+            if (score := _relevance_score(source, keys)) is not None
+        ]
+        return max(scores) if scores else None
+
+    match_score = best_score(("match_score",))
+    return {
+        "semantic_relevance": best_score(
+            ("semantic_relevance", "semantic_score", "relevance_score")
+        ),
+        "dashboard_relevance": best_score(
+            ("dashboard_relevance", "dashboard_relevance_score")
+        ),
+        "match_score": (
+            match_score if match_score is not None else item["match_score"]
+        ),
+        "confidence": best_score(("confidence_score", "confidence")),
+    }
+
+
 def _scenario_categories(scenario_text: str) -> List[str]:
     category = classify_kpi(scenario_text)
     return [category]
@@ -432,6 +548,7 @@ class FinancialModelService:
         kpi_insights: Any,
         actions: Any,
         rules: Any,
+        baseline_relevance_records: Any = None,
     ) -> Dict[str, Any]:
         del actions, rules
         scenario_text = _scenario_text(scenario)
@@ -465,7 +582,7 @@ class FinancialModelService:
                     "currency": currency,
                     "formatted_amount": _format_money(amount, currency),
                     "category": category,
-                    "confidence": _confidence(record),
+                    **_confidence_metadata(record),
                     "source": source,
                     "classification": "Current Enterprise Exposure",
                 })
@@ -519,12 +636,66 @@ class FinancialModelService:
         matched.sort(
             key=lambda item: (
                 item["match_score"],
-                _confidence(item["record"]),
-                _importance(item["record"]),
+                _confidence(item["record"])
+                if _confidence(item["record"]) is not None
+                else -1.0,
+                _importance(item["record"])
+                if _importance(item["record"]) is not None
+                else -1.0,
             ),
             reverse=True,
         )
         affected = matched[:10]
+        relevance_records = (
+            baseline_relevance_records
+            if isinstance(baseline_relevance_records, list)
+            else []
+        )
+        baseline_candidates = []
+        for item in categorized_records:
+            if item["match_score"] <= 0:
+                continue
+            money = _money(item["record"])
+            if money is None:
+                continue
+            amount, currency = money
+            scores = _baseline_scores(item, relevance_records)
+            baseline_candidates.append({
+                "item": item,
+                "amount": amount,
+                "currency": currency,
+                "scores": scores,
+                "priority": (
+                    scores["semantic_relevance"] or 0.0,
+                    scores["dashboard_relevance"] or 0.0,
+                    scores["match_score"] or 0.0,
+                    scores["confidence"] or 0.0,
+                ),
+            })
+        baseline_candidates.sort(
+            key=lambda candidate: candidate["priority"],
+            reverse=True,
+        )
+        primary_baseline = None
+        alternative_baselines = []
+        if baseline_candidates:
+            for index, candidate in enumerate(baseline_candidates):
+                item = candidate["item"]
+                record = item["record"]
+                baseline = {
+                    "name": _record_name(record),
+                    "value": round(candidate["amount"], 2),
+                    "currency": candidate["currency"],
+                    "formatted_value": _format_money(
+                        candidate["amount"],
+                        candidate["currency"],
+                    ),
+                    **candidate["scores"],
+                }
+                if index == 0:
+                    primary_baseline = baseline
+                else:
+                    alternative_baselines.append(baseline)
         adverse = _is_adverse(scenario_text, direction, affected)
         affected_categories = list(dict.fromkeys(
             item["category"] for item in affected
@@ -533,28 +704,19 @@ class FinancialModelService:
             scenario_severity = "LOW" if direction in {"INCREASE", "DECREASE"} else "UNQUANTIFIED"
 
         evidence_confidences = [
-            _confidence(item["record"]) for item in affected
+            value
+            for item in affected
+            if (value := _confidence(item["record"])) is not None
         ]
-        evidence_importance = [
-            _importance(item["record"]) for item in affected
-        ]
-        if evidence_confidences:
-            evidence_confidence = sum(evidence_confidences) / len(evidence_confidences)
-        else:
-            evidence_confidence = 0.35
-        importance = (
-            sum(evidence_importance) / len(evidence_importance)
-            if evidence_importance
-            else 0.5
+        confidence = (
+            round(sum(evidence_confidences) / len(evidence_confidences), 3)
+            if evidence_confidences
+            else None
         )
-        match_quality = (
-            sum(item["match_score"] for item in affected) / len(affected)
-            if affected
-            else 0.25
-        )
-        confidence = round(
-            min(max(evidence_confidence * (0.65 + 0.2 * importance + 0.15 * match_quality), 0.0), 1.0),
-            3,
+        confidence_reason = (
+            "Arithmetic mean of supplied KPI confidence values; not an independent measurement."
+            if evidence_confidences
+            else "No source KPI confidence data was provided."
         )
 
         impacts = []
@@ -570,17 +732,22 @@ class FinancialModelService:
                 category_items = [
                     item for item in affected if item["category"] == category
                 ]
-                category_confidence = sum(
-                    _confidence(item["record"]) for item in category_items
-                ) / len(category_items)
-                category_importance = sum(
-                    _importance(item["record"]) for item in category_items
-                ) / len(category_items)
-                level = _adjust_severity(
-                    level,
-                    category_confidence,
-                    category_importance,
-                )
+                category_confidences = [
+                    value
+                    for item in category_items
+                    if (value := _confidence(item["record"])) is not None
+                ]
+                category_importances = [
+                    value
+                    for item in category_items
+                    if (value := _importance(item["record"])) is not None
+                ]
+                if category_confidences and category_importances:
+                    level = _adjust_severity(
+                        level,
+                        sum(category_confidences) / len(category_confidences),
+                        sum(category_importances) / len(category_importances),
+                    )
             category_severities.append(level)
             impacts.extend({
                 "category": category,
@@ -591,26 +758,24 @@ class FinancialModelService:
 
         estimated_amounts: Dict[str, float] = {}
         amount_evidence = []
-        if adverse and magnitude is not None:
-            for item in affected:
-                record = item["record"]
-                money = _money(record)
-                if money is None or item["match_score"] <= 0:
-                    continue
-                amount, currency = money
-                estimated = round(abs(amount) * magnitude / 100, 2)
-                if estimated <= 0:
-                    continue
-                estimated_amounts[currency] = estimated_amounts.get(currency, 0.0) + estimated
+        if adverse and magnitude is not None and baseline_candidates:
+            candidate = baseline_candidates[0]
+            item = candidate["item"]
+            record = item["record"]
+            amount = candidate["amount"]
+            currency = candidate["currency"]
+            estimated = round(abs(amount) * magnitude / 100, 2)
+            if estimated > 0:
+                estimated_amounts[currency] = estimated
                 amount_evidence.append({
                     "kpi": _record_name(record),
                     "baseline": _format_money(amount, currency),
                     "estimated_scenario_amount": _format_money(estimated, currency),
                     "scenario_change_percent": round(magnitude, 2),
-                    "confidence": _confidence(record),
+                    **_confidence_metadata(record),
                     "why": (
-                        f"{_record_name(record)} is directly matched to the scenario and provides "
-                        "the monetary baseline used for this estimate."
+                        f"{_record_name(record)} is the highest-ranked directly matched "
+                        "monetary baseline used for this estimate."
                     ),
                     "derivation": (
                         f"{_format_money(amount, currency)} × "
@@ -633,8 +798,8 @@ class FinancialModelService:
                 "reasoning": item["record"].get("reasoning")
                 or item["record"].get("explanation")
                 or item["record"].get("rationale"),
-                "confidence": _confidence(item["record"]),
-                "business_importance": _importance(item["record"]),
+                **_confidence_metadata(item["record"]),
+                **_importance_metadata(item["record"]),
                 "match_score": round(item["match_score"], 3),
             }
             for item in affected
@@ -646,6 +811,8 @@ class FinancialModelService:
             "affected_categories": affected_categories,
             "impacts": impacts,
             "impact_drivers": drivers,
+            "primary_baseline": primary_baseline,
+            "alternative_baselines": alternative_baselines,
             "estimated_amount_by_currency": {
                 currency: round(amount, 2)
                 for currency, amount in estimated_amounts.items()
@@ -654,20 +821,23 @@ class FinancialModelService:
             "financial_reasoning": (
                 (
                     "Each monetary estimate uses a directly scenario-matched monetary KPI baseline "
-                    "multiplied by the explicit scenario percentage; see amount evidence for the baseline, "
+                    "multiplied by the explicit scenario percentage. Only the primary baseline contributes "
+                    "to the estimate; alternatives are informational. See amount evidence for the baseline, "
                     "calculation, and assumptions. "
                     if amount_evidence
                     else ""
                 )
-                + "Scenario risk is derived from the parsed direction and magnitude, affected KPI evidence, "
-                "KPI confidence, and business-importance signals. Monetary estimates are included only "
+                + "Scenario risk is derived from the parsed direction and magnitude and affected KPI evidence. "
+                "Supplied KPI confidence and business-importance signals inform certainty and severity only "
+                "when available. Monetary estimates are included only "
                 "where an affected monetary KPI and explicit scenario percentage are both available."
             ),
             "assumptions": [
                 "Explicit percentage changes are applied proportionally to directly matched monetary KPI baselines; this is a directional estimate, not a causal forecast.",
                 "Qualitative scenarios receive a severity assessment but no invented monetary amount.",
-                "When a KPI omits confidence or business importance, conservative neutral defaults are used and reduce certainty.",
+                "Missing KPI confidence and business-importance values remain unavailable; no neutral defaults are substituted.",
             ],
+            "confidence_reason": confidence_reason,
         }
         combined_outlook = {
             "severity": _combine_severity(
@@ -685,4 +855,5 @@ class FinancialModelService:
             "scenario_exposure": scenario_exposure,
             "combined_outlook": combined_outlook,
             "confidence": confidence,
+            "confidence_reason": confidence_reason,
         }

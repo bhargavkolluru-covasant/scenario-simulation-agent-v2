@@ -217,7 +217,10 @@ def _related_source_reasoning(
     return _brief(" ".join(relevant), max_words=60, max_characters=400)
 
 
-def _severity_score(impact_result: Dict[str, Any], record: Dict[str, Any]) -> int:
+def _severity_score(
+    impact_result: Dict[str, Any],
+    record: Dict[str, Any],
+) -> Optional[int]:
     severity_by_name = {
         "CRITICAL": 5,
         "HIGH": 4,
@@ -226,13 +229,24 @@ def _severity_score(impact_result: Dict[str, Any], record: Dict[str, Any]) -> in
         "LOW": 2,
     }
     record_text = _text(record).casefold()
-    score = severity_by_name.get(str(impact_result.get("overall_severity", "")).upper(), 2)
+    score = severity_by_name.get(
+        str(
+            record.get("severity")
+            or record.get("risk_severity")
+            or impact_result.get("overall_severity")
+            or ""
+        ).upper()
+    )
     dimensions = impact_result.get("dimensions", [])
     for dimension in dimensions if isinstance(dimensions, list) else []:
         if not isinstance(dimension, dict):
             continue
         if any(word in _text(dimension).casefold() for word in record_text.split() if len(word) > 3):
-            score = max(score, severity_by_name.get(str(dimension.get("severity", "")).upper(), 0))
+            dimension_score = severity_by_name.get(
+                str(dimension.get("severity", "")).upper()
+            )
+            if dimension_score is not None:
+                score = max(score or dimension_score, dimension_score)
     return score
 
 
@@ -371,24 +385,38 @@ class RootCauseAnalysisService:
                 matched_records,
             )
             confidence = _confidence(_first(record, _CONFIDENCE_KEYS))
-            confidence = (
-                min(0.92, 0.55 + confidence * 0.3 + (0.05 if len(evidence) > 1 else 0))
-                if confidence is not None
-                else (0.62 if len(evidence) > 1 else 0.45)
-            )
             severity = _severity_score(impact, record)
             candidates.append({
-                "_rank": severity * 100 + len(evidence) * 10 + confidence * 20,
+                "_rank": (
+                    (severity or 0) * 100
+                    + len(evidence) * 10
+                    + (confidence * 20 if confidence is not None else 0)
+                ),
                 "root_cause": cause,
                 "scenario_category": scenario_category.casefold(),
-                "confidence": round(confidence, 2),
-                "severity": {5: "CRITICAL", 4: "HIGH", 3: "MEDIUM", 2: "LOW"}.get(severity, "MEDIUM"),
+                "confidence": (
+                    round(confidence, 2) if confidence is not None else None
+                ),
+                "confidence_reason": (
+                    None
+                    if confidence is not None
+                    else "No source KPI confidence data was provided."
+                ),
+                "severity": (
+                    {5: "CRITICAL", 4: "HIGH", 3: "MEDIUM", 2: "LOW"}.get(
+                        severity, "UNQUANTIFIED"
+                    )
+                ),
                 "evidence": evidence,
                 "business_consequence": consequence,
                 "mitigation": mitigation,
                 "recommended_mitigation": mitigation,
-                "evidence_strength": round(min(len(evidence) / _EVIDENCE_LIMIT, 1.0), 2),
-                "impact_score": 0.0,
+                "evidence_strength": None,
+                "evidence_strength_reason": (
+                    "Evidence strength is not calibrated from source data."
+                ),
+                "impact_score": None,
+                "impact_score_reason": "No calibrated root-cause impact score is available.",
             })
 
         if not candidates:
@@ -470,20 +498,40 @@ class RootCauseAnalysisService:
                             f"Scenario: {_brief(scenario_text, max_words=12, max_characters=100)}"
                         )
                     confidence = _confidence(_first(record, _CONFIDENCE_KEYS))
-                    confidence = confidence if confidence is not None else 0.45
                     severity = _severity_score(impact, record)
                     candidates.append({
-                        "_rank": severity * 100 + len(evidence) * 10 + confidence * 20,
+                        "_rank": (
+                            (severity or 0) * 100
+                            + len(evidence) * 10
+                            + (confidence * 20 if confidence is not None else 0)
+                        ),
                         "root_cause": cause,
                         "scenario_category": scenario_category.casefold(),
-                        "confidence": round(confidence, 2),
-                        "severity": {5: "CRITICAL", 4: "HIGH", 3: "MEDIUM", 2: "LOW"}.get(severity, "MEDIUM"),
+                        "confidence": (
+                            round(confidence, 2) if confidence is not None else None
+                        ),
+                        "confidence_reason": (
+                            None
+                            if confidence is not None
+                            else "No source KPI confidence data was provided."
+                        ),
+                        "severity": (
+                            {5: "CRITICAL", 4: "HIGH", 3: "MEDIUM", 2: "LOW"}.get(
+                                severity, "UNQUANTIFIED"
+                            )
+                        ),
                         "evidence": evidence[:_EVIDENCE_LIMIT],
                         "business_consequence": consequence,
                         "mitigation": mitigation,
                         "recommended_mitigation": mitigation,
-                        "evidence_strength": round(min(len(evidence) / _EVIDENCE_LIMIT, 1.0), 2),
-                        "impact_score": 0.0,
+                        "evidence_strength": None,
+                        "evidence_strength_reason": (
+                            "Evidence strength is not calibrated from source data."
+                        ),
+                        "impact_score": None,
+                        "impact_score_reason": (
+                            "No calibrated root-cause impact score is available."
+                        ),
                     })
                     if len(candidates) >= 5:
                         break
@@ -499,28 +547,38 @@ class RootCauseAnalysisService:
                 "_rank": 20,
                 "root_cause": _cause_name({}, scenario_text, scenario_category),
                 "scenario_category": scenario_category.casefold(),
-                "confidence": 0.35,
-                "severity": "MEDIUM",
+                "confidence": None,
+                "confidence_reason": "No source KPI confidence data was provided.",
+                "severity": "UNQUANTIFIED",
                 "evidence": [f"Scenario: {_brief(scenario_text, max_words=18, max_characters=140)}"],
                 "business_consequence": consequence,
                 "mitigation": mitigation,
                 "recommended_mitigation": mitigation,
-                "evidence_strength": 0.25,
-                "impact_score": 0.0,
+                "evidence_strength": None,
+                "evidence_strength_reason": (
+                    "Evidence strength is not calibrated from source data."
+                ),
+                "impact_score": None,
+                "impact_score_reason": "No calibrated root-cause impact score is available.",
             })
         if not candidates:
             candidates.append({
                 "_rank": 0,
                 "root_cause": "Insufficient evidence to infer a likely driver",
                 "scenario_category": scenario_category.casefold(),
-                "confidence": 0.1,
-                "severity": "LOW",
+                "confidence": None,
+                "confidence_reason": "Insufficient evidence available.",
+                "severity": "UNQUANTIFIED",
                 "evidence": ["No scenario-linked KPI, rule, or dashboard evidence was available."],
                 "business_consequence": "A material business consequence cannot be established from the available evidence.",
                 "mitigation": "Gather scenario-relevant operating evidence and validate potential contributing factors.",
                 "recommended_mitigation": "Gather scenario-relevant operating evidence and validate potential contributing factors.",
-                "evidence_strength": 0.0,
-                "impact_score": 0.0,
+                "evidence_strength": None,
+                "evidence_strength_reason": (
+                    "Evidence strength is not calibrated from source data."
+                ),
+                "impact_score": None,
+                "impact_score_reason": "No calibrated root-cause impact score is available.",
             })
 
         candidates.sort(key=lambda item: item["_rank"], reverse=True)

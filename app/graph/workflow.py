@@ -1,4 +1,5 @@
 import logging
+from typing import Any, Awaitable, Callable
 
 from langgraph.graph import StateGraph, END
 
@@ -33,6 +34,94 @@ from app.nodes.report_generation_node import report_generation_node
 
 logger = logging.getLogger(__name__)
 
+REQUIRED_NODES = frozenset({
+    "context",
+    "scenario_parser",
+    "dashboard_intelligence",
+    "dashboard_context_resolver",
+    "simulation",
+})
+OPTIONAL_NODE_FEATURES = {
+    "recommendation": "recommendation_narrative",
+    "explainability": "explainability",
+    "report": "report_enrichment",
+}
+DEGRADED_STATUS = "COMPLETED_WITH_DEGRADED_FEATURES"
+
+
+def route_required_node(state: SimulationState) -> str:
+    return "stop" if state.get("status") == "FAILED" else "continue"
+
+
+def _record_node_failure(state: SimulationState, node_name: str) -> None:
+    state["failed_node"] = node_name
+    if node_name in REQUIRED_NODES:
+        state["status"] = "FAILED"
+        return
+
+    feature = OPTIONAL_NODE_FEATURES.get(node_name)
+    if feature is None:
+        state["status"] = "FAILED"
+        return
+
+    degraded_features = state.get("degraded_features")
+    if not isinstance(degraded_features, list):
+        degraded_features = []
+    if feature not in degraded_features:
+        degraded_features.append(feature)
+    state["degraded_features"] = degraded_features
+    state["status"] = DEGRADED_STATUS
+    logger.warning(
+        "[Workflow] Optional node failed; continuing with degraded feature=%s",
+        feature,
+    )
+
+
+def classify_node(
+    node_name: str,
+    node: Callable[[SimulationState], Awaitable[SimulationState]],
+) -> Callable[[SimulationState], Awaitable[SimulationState]]:
+    async def run(state: SimulationState) -> SimulationState:
+        state["current_node"] = node_name
+        try:
+            result = await node(state)
+            if isinstance(result, dict):
+                state = result
+        except Exception:
+            logger.exception("[Workflow] Node execution failed: %s", node_name)
+            _record_node_failure(state, node_name)
+            return state
+
+        node_failed = state.get("status") == "FAILED"
+        report = state.get("final_report")
+        report_is_empty = (
+            node_name == "report"
+            and (
+                not isinstance(report, dict)
+                or not str(report.get("markdown_report") or "").strip()
+            )
+        )
+        if node_failed or report_is_empty:
+            _record_node_failure(state, node_name)
+        elif state.get("degraded_features"):
+            state["status"] = DEGRADED_STATUS
+        return state
+
+    run.__name__ = f"classified_{node_name}"
+    return run
+
+
+def _add_required_edge(node_name: str, next_node: str) -> None:
+    graph.add_conditional_edges(
+        node_name,
+        route_required_node,
+        {
+            "continue": next_node,
+            "stop": END,
+        },
+    )
+
+
 # =====================================================
 # LangGraph Initialization
 # =====================================================
@@ -43,12 +132,18 @@ graph = StateGraph(SimulationState)
 # Register Nodes: 7 Decision Intelligence Nodes + Platform Services
 # =====================================================
 
-graph.add_node("context", context_node)
-graph.add_node("scenario_parser", scenario_parser_node)
-graph.add_node("dashboard_intelligence", dashboard_node)
+graph.add_node("context", classify_node("context", context_node))
+graph.add_node("scenario_parser", classify_node("scenario_parser", scenario_parser_node))
+graph.add_node(
+    "dashboard_intelligence",
+    classify_node("dashboard_intelligence", dashboard_node),
+)
 
 # Decision Intelligence Node 1: Dashboard Context Resolver
-graph.add_node("dashboard_context_resolver", dashboard_context_resolver_node)
+graph.add_node(
+    "dashboard_context_resolver",
+    classify_node("dashboard_context_resolver", dashboard_context_resolver_node),
+)
 
 # Decision Intelligence Node 2: Scenario Intent Classifier
 graph.add_node("scenario_intent_classifier", scenario_intent_classifier_node)
@@ -79,11 +174,17 @@ graph.add_node("strategy_selector", strategy_selector_node)
 graph.add_node("actions", actions_node)
 graph.add_node("knowledge_graph", knowledge_graph_node)
 graph.add_node("rules", rules_node)
-graph.add_node("simulation", simulation_node)
+graph.add_node("simulation", classify_node("simulation", simulation_node))
 graph.add_node("impact_analysis", impact_analysis_node)
-graph.add_node("recommendation", recommendation_node)
-graph.add_node("explainability", explainability_node)
-graph.add_node("report", report_generation_node)
+graph.add_node(
+    "recommendation",
+    classify_node("recommendation", recommendation_node),
+)
+graph.add_node(
+    "explainability",
+    classify_node("explainability", explainability_node),
+)
+graph.add_node("report", classify_node("report", report_generation_node))
 
 # =====================================================
 # Entry Point
@@ -95,10 +196,10 @@ graph.set_entry_point("context")
 # Execution Flow
 # =====================================================
 
-graph.add_edge("context", "scenario_parser")
-graph.add_edge("scenario_parser", "dashboard_intelligence")
-graph.add_edge("dashboard_intelligence", "dashboard_context_resolver")
-graph.add_edge("dashboard_context_resolver", "scenario_intent_classifier")
+_add_required_edge("context", "scenario_parser")
+_add_required_edge("scenario_parser", "dashboard_intelligence")
+_add_required_edge("dashboard_intelligence", "dashboard_context_resolver")
+_add_required_edge("dashboard_context_resolver", "scenario_intent_classifier")
 graph.add_edge("scenario_intent_classifier", "relevant_kpi_selector")
 graph.add_edge("relevant_kpi_selector", "entity_matching")
 graph.add_edge("entity_matching", "kpi_insights")
@@ -111,7 +212,7 @@ graph.add_edge("strategy_selector", "actions")
 graph.add_edge("actions", "rules")
 graph.add_edge("rules", "knowledge_graph")
 graph.add_edge("knowledge_graph", "simulation")
-graph.add_edge("simulation", "impact_analysis")
+_add_required_edge("simulation", "impact_analysis")
 graph.add_edge("impact_analysis", "recommendation")
 graph.add_edge("recommendation", "explainability")
 graph.add_edge("explainability", "report")

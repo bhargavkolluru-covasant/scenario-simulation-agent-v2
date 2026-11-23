@@ -3,6 +3,9 @@ import pytest
 from app.clients.invoice_client import InvoiceClient
 
 
+pytestmark = pytest.mark.integration
+
+
 @pytest.mark.asyncio
 async def test_invoice_connectivity():
     client = InvoiceClient()

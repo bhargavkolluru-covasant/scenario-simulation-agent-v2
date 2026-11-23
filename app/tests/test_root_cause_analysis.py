@@ -55,7 +55,8 @@ def test_scenario_only_root_cause_is_cautious_and_domain_agnostic():
     assert all(finding["evidence"] for finding in findings)
     assert all(len(finding["evidence"]) <= 3 for finding in findings)
     assert all(len(evidence) <= 180 for finding in findings for evidence in finding["evidence"])
-    assert all(0 <= finding["confidence"] <= 1 for finding in findings)
+    assert all(finding["confidence"] is None for finding in findings)
+    assert all(finding["confidence_reason"] for finding in findings)
     assert all(finding["business_consequence"] for finding in findings)
     assert all(finding["recommended_mitigation"] for finding in findings)
 
@@ -100,9 +101,75 @@ def test_root_cause_is_nonempty_but_explicitly_cautious_without_evidence():
     )
 
     assert len(findings) == 1
-    assert findings[0]["confidence"] == 0.1
+    assert findings[0]["confidence"] is None
+    assert findings[0]["confidence_reason"] == "Insufficient evidence available."
+    assert findings[0]["evidence_strength"] is None
+    assert findings[0]["evidence_strength_reason"]
+    assert findings[0]["impact_score"] is None
+    assert findings[0]["impact_score_reason"]
     assert "Insufficient evidence" in findings[0]["root_cause"]
     assert findings[0]["evidence"]
+
+
+@pytest.mark.asyncio
+async def test_no_evidence_leaves_overall_impact_score_unquantified():
+    impact = await ImpactAnalysisService().analyze({
+        "query": "",
+        "scenario": {},
+        "dashboard_data": {},
+        "matched_dashboard_records": [],
+        "kpi_insights": {},
+        "actions": [],
+        "action_stats": {},
+        "rules": [],
+        "simulation_result": {"metrics": {}},
+    })
+
+    assert impact["overall_impact_score"] is None
+    assert impact["overall_impact_score_reason"]
+    assert impact["overall_severity"] == "UNQUANTIFIED"
+    assert all(
+        dimension["score"] is None
+        for dimension in impact["dimensions"]
+        if dimension["dimension_name"] in {
+            "Scenario Impact",
+            "Financial & Liquidity Exposure",
+            "Regulatory & Internal Rule Compliance",
+            "Additional Scenario Risk",
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_explainability_does_not_render_missing_confidence_as_zero():
+    class UnconfiguredLLM:
+        is_configured = False
+
+    financial_model = {
+        "scenario_exposure": {
+            "severity": "UNQUANTIFIED",
+            "confidence": None,
+            "confidence_reason": "Insufficient evidence available.",
+            "estimated_amount_by_currency": {},
+        }
+    }
+    explanation = await ExplainabilityService(llm_service=UnconfiguredLLM()).explain({
+        "query": "Assess the scenario",
+        "scenario": {"query": "Assess the scenario"},
+        "simulation_result": {
+            "metrics": {},
+            "financial_model": financial_model,
+        },
+        "impact_result": {
+            "overall_severity": "UNQUANTIFIED",
+            "financial_model": financial_model,
+        },
+    })
+
+    assert "0% confidence" not in explanation["financial_impact"]
+    assert "confidence unavailable: Insufficient evidence available." in (
+        explanation["financial_impact"]
+    )
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,9 @@ import pytest
 from app.clients.expense_client import ExpenseClient
 
 
+pytestmark = pytest.mark.integration
+
+
 @pytest.mark.asyncio
 async def test_expense_connectivity():
     client = ExpenseClient()

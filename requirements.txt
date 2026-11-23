@@ -4,14 +4,12 @@ langgraph
 langchain
 langchain-core
 langchain-groq
-langchain-google-genai
 httpx
 requests
 pydantic
 pydantic-settings
 tzdata
 python-dotenv
-google-generativeai
 networkx
 tenacity
 loguru

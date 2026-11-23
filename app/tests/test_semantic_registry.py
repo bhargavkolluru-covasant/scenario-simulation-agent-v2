@@ -3,6 +3,9 @@ import pytest
 from app.clients.semantic_registry_client import SemanticRegistryClient
 
 
+pytestmark = pytest.mark.integration
+
+
 @pytest.mark.asyncio
 async def test_semantic_registry_connectivity():
     client = SemanticRegistryClient()

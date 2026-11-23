@@ -491,10 +491,6 @@ class CausalReasoningService:
             root_causes[0]["evidence"] = list(dict.fromkeys(
                 [*root_causes[0].get("evidence", []), *graph_evidence]
             ))[:3]
-            root_causes[0]["confidence"] = min(
-                0.95,
-                round(float(root_causes[0].get("confidence", 0.4)) + 0.05, 2),
-            )
 
         reasoning = _kpi_reasoning(primary) if primary else ""
         value = _kpi_value(primary) if primary else None
@@ -578,8 +574,11 @@ class CausalReasoningService:
             "causal_basis": causal_basis,
             "graph_evidence": graph_evidence,
             "graph_available": graph_available,
-            "confidence": confidence if confidence is not None else (
-                0.65 if graph_evidence else 0.4 if primary else 0.25
+            "confidence": confidence,
+            "confidence_reason": (
+                None
+                if confidence is not None
+                else "No source KPI confidence data was provided."
             ),
             "current_enterprise_problems": [
                 {

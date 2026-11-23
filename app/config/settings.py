@@ -44,9 +44,7 @@ class Settings(BaseSettings):
     # Context
     # ==================================================
 
-    ARIIA_ENTERPRISE_ID: str = (
-        "ent_40cb7d18dca2"
-    )
+    ARIIA_ENTERPRISE_ID: Optional[str] = None
 
     ARIIA_DOMAIN_IDS: str = (
         "re_core_master,re_documents_conversation_intelligence,"
@@ -97,29 +95,10 @@ class Settings(BaseSettings):
     # LLM
     # ==================================================
 
-    LLM_PROVIDER: str = "groq"
-
-    COPILOT_BASE_URL: str = "http://127.0.0.1:3030/v1"
-
-    COPILOT_MODEL: str = "gpt-4o-copilot"
-
-    COPILOT_TIMEOUT: float = 60.0
-
-    COPILOT_MAX_RETRIES: int = 3
     GROQ_API_KEY: Optional[str] = None
 
     GROQ_MODEL: str = (
         "openai/gpt-oss-120b"
-    )
-
-    GROQ_TIMEOUT: float = 60.0
-
-    GROQ_MAX_RETRIES: int = 3
-
-    GEMINI_API_KEY: Optional[str] = None
-
-    GEMINI_MODEL: str = (
-        "models/gemini-3.8-flash"
     )
 
     # ==================================================

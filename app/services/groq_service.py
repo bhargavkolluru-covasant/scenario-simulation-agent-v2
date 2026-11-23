@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional, Type, Union
+from typing import Any, List, Optional, Type, Union
 
 import httpx
 from langchain_core.messages import (
@@ -22,6 +22,9 @@ from tenacity import (
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_TIMEOUT = 60.0
+_DEFAULT_MAX_RETRIES = 3
 
 
 def _should_retry(exc: BaseException) -> bool:
@@ -59,9 +62,9 @@ class GroqService:
         self.model = model or settings.GROQ_MODEL
         self.temperature = temperature
         self.max_output_tokens = max_output_tokens
-        self.timeout = timeout if timeout is not None else settings.GROQ_TIMEOUT
+        self.timeout = timeout if timeout is not None else _DEFAULT_TIMEOUT
         self.max_retries = (
-            max_retries if max_retries is not None else settings.GROQ_MAX_RETRIES
+            max_retries if max_retries is not None else _DEFAULT_MAX_RETRIES
         )
         self._llm: Optional[ChatGroq] = None
 

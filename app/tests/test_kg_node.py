@@ -6,6 +6,9 @@ from app.services.knowledge_graph_service import KnowledgeGraphService
 from app.tests.kg_validation_support import configured_node_id, live_kg_client
 
 
+pytestmark = pytest.mark.integration
+
+
 def _first_node_id(graph_response) -> Optional[str]:
     nodes = KnowledgeGraphService.normalize_graph(graph_response)["nodes"]
     for node in nodes:

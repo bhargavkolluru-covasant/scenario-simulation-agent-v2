@@ -25,4 +25,5 @@ async def main():
         print(response.status_code)
         print(response.text)
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

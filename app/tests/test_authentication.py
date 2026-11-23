@@ -101,6 +101,15 @@ def test_base_client_centralized_auth_injection():
     assert test_token not in masked["Authorization"]
 
 
+def test_request_auth_does_not_fall_back_to_server_token(monkeypatch):
+    monkeypatch.setattr(settings, "ARIIA_ACCESS_TOKEN", "server-configured-token")
+
+    assert "Authorization" not in BaseClient(
+        base_url="https://api.example.com",
+    )._get_headers()
+    assert AuthService().get_token() is None
+
+
 def test_all_clients_inherit_base_client():
     """Verify that every domain client class inherits from BaseClient."""
     clients = [
@@ -118,20 +127,26 @@ def test_all_clients_inherit_base_client():
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 async def test_semantic_registry_endpoint_health():
     """
     Health check calling Semantic Registry endpoint with authentication headers.
     Loads token from settings, executes request, and prints response code & summary.
     """
-    token = settings.access_token or generate_sample_jwt()
+    if not settings.access_token or not settings.enterprise_id or not settings.domain_ids:
+        pytest.skip(
+            "Set ARIIA_ACCESS_TOKEN, ARIIA_ENTERPRISE_ID, and ARIIA_DOMAIN_IDS "
+            "to call the live Semantic Registry API."
+        )
+
+    token = settings.access_token
     scope = settings.scope_id or "default-scope"
 
     client = SemanticRegistryClient()
-    # Ensure client is configured with active token
-    if not client.auth_token:
-        client.auth_token = token
-    if not client.scope_id:
-        client.scope_id = scope
+    client.auth_token = token
+    client.enterprise_id = settings.enterprise_id
+    client.domain_ids = settings.domain_ids
+    client.scope_id = scope
 
     print("\n" + "=" * 60)
     print("ARIIA AUTHENTICATED ENDPOINT HEALTH CHECK")

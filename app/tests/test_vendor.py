@@ -3,6 +3,9 @@ import pytest
 from app.clients.vendor_client import VendorClient
 
 
+pytestmark = pytest.mark.integration
+
+
 @pytest.mark.asyncio
 async def test_vendor_connectivity():
     client = VendorClient()

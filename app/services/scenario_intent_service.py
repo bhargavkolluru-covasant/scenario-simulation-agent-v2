@@ -6,6 +6,15 @@ from typing import Any, Dict
 logger = logging.getLogger(__name__)
 
 
+def _parsed_change_direction(change_type: Any) -> str:
+    value = str(change_type or "").casefold()
+    if re.search(r"\b(increase|increases|increased|rise|rises|rising)\b", value):
+        return "INCREASE"
+    if re.search(r"\b(decrease|decreases|decreased|fall|falls|falling|decline|declines)\b", value):
+        return "DECREASE"
+    return ""
+
+
 class ScenarioIntentService:
 
     """
@@ -65,8 +74,31 @@ class ScenarioIntentService:
                     )
                     or ""
                 ),
+                str(
+                    scenario.get(
+                        "target_entity"
+                    )
+                    or ""
+                ),
             ]
         ).casefold()
+        change_direction = _parsed_change_direction(
+            scenario.get("change_type")
+        )
+        scenario_subject = " ".join(
+            str(scenario.get(key) or "")
+            for key in ("scenario_type", "target_entity")
+        ).casefold()
+        if re.search(r"\b(revenue|sales|turnover)\b", scenario_subject):
+            financial_topic = "REVENUE"
+        elif re.search(r"\b(cost|costs|expense|expenses|expenditure)\b", scenario_subject):
+            financial_topic = "COST"
+        elif re.search(r"\b(revenue|sales|turnover)\b", full_text):
+            financial_topic = "REVENUE"
+        elif re.search(r"\b(cost|costs|expense|expenses|expenditure)\b", full_text):
+            financial_topic = "COST"
+        else:
+            financial_topic = ""
 
         # -----------------------------------
         # Theme Extraction
@@ -198,10 +230,17 @@ class ScenarioIntentService:
                 "PROJECT_DELIVERY"
             )
 
-        elif "sales" in themes:
-            scenario_category = (
-                "REVENUE_DECLINE"
-            )
+        elif financial_topic == "REVENUE":
+            scenario_category = {
+                "INCREASE": "REVENUE_GROWTH",
+                "DECREASE": "REVENUE_DECLINE",
+            }.get(change_direction, "REVENUE_CHANGE")
+
+        elif financial_topic == "COST":
+            scenario_category = {
+                "INCREASE": "COST_INCREASE",
+                "DECREASE": "COST_DECREASE",
+            }.get(change_direction, "COST_CHANGE")
 
         elif (
             "competition" in themes

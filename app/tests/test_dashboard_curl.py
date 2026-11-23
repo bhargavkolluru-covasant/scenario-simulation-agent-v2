@@ -22,7 +22,8 @@ def build_dashboard_curl_command() -> str:
 
 def test_print_dashboard_curl_command() -> None:
     command = build_dashboard_curl_command()
-    print("PowerShell equivalent command (credentials use environment variables):")
+    print("PowerShell equivalent command (no caller token supplied):")
     print(command)
     assert "dash_3e633ae526ae/data" in command
-    assert "$env:ARIIA_ACCESS_TOKEN" in command
+    assert "Authorization:" not in command
+    assert "$env:ARIIA_ACCESS_TOKEN" not in command

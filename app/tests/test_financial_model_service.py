@@ -108,7 +108,11 @@ def test_generic_scenario_model_classifies_direction_and_risk(
     assert modeled["direction"] == direction
     assert category in modeled["affected_categories"]
     assert modeled["impacts"]
-    assert modeled["confidence"] > 0
+    if "confidence_score" in kpi:
+        assert modeled["confidence"] > 0
+    else:
+        assert modeled["confidence"] is None
+        assert modeled["confidence_reason"]
     assert modeled["financial_reasoning"]
     assert modeled["assumptions"]
     assert result["confidence"] == modeled["confidence"]
@@ -152,7 +156,150 @@ def test_percent_change_estimates_only_matched_monetary_kpi_and_keeps_current_ex
         "scenario_exposure",
         "combined_outlook",
         "confidence",
+        "confidence_reason",
     }
+
+
+@pytest.mark.parametrize(
+    ("name", "scenario"),
+    [
+        (
+            "Cashflow",
+            "What if cashflow actual and cashflow forecast fall by 10%?",
+        ),
+        (
+            "Revenue",
+            "What if revenue actual and revenue forecast fall by 10%?",
+        ),
+        (
+            "Collections",
+            "What if collections actual and collections forecast fall by 10%?",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_simulation_uses_one_ranked_baseline_for_actual_and_forecast_kpis(name, scenario):
+    actual_name = f"{name} Actual"
+    forecast_name = f"{name} Forecast"
+    state = {
+        "query": scenario,
+        "scenario": {"query": scenario, "change_percentage": 10},
+        "dashboard_data": {},
+        "dashboard_rows": [],
+        "matched_dashboard_records": [],
+        "kpi_insights": {"kpis": [
+            {
+                "kpi_name": actual_name,
+                "kpi_value": 10_000_000,
+                "kpi_unit": "AED",
+            },
+            {
+                "kpi_name": forecast_name,
+                "kpi_value": 8_000_000,
+                "kpi_unit": "AED",
+            },
+        ]},
+        "dashboard_kpi_records": [
+            {
+                "name": actual_name,
+                "value": 10_000_000,
+                "_scoring": {
+                    "semantic_relevance": 0.9,
+                    "dashboard_relevance": 0.8,
+                },
+            },
+            {
+                "name": forecast_name,
+                "value": 8_000_000,
+                "_scoring": {
+                    "semantic_relevance": 0.4,
+                    "dashboard_relevance": 1.0,
+                },
+            },
+        ],
+        "actions": [],
+        "action_stats": {},
+        "rules": [],
+        "knowledge_graph_data": {},
+    }
+
+    simulation = await SimulationService().run(state)
+    exposure = simulation["financial_model"]["scenario_exposure"]
+
+    assert exposure["primary_baseline"]["name"] == actual_name
+    assert exposure["primary_baseline"]["value"] == 10_000_000
+    assert [item["name"] for item in exposure["alternative_baselines"]] == [
+        forecast_name
+    ]
+    assert exposure["estimated_amount_by_currency"] == {"AED": 1_000_000}
+    assert [item["kpi"] for item in exposure["amount_evidence"]] == [actual_name]
+    assert simulation["metrics"]["scenario_incremental_financial_exposure"] == 1_000_000
+
+
+@pytest.mark.parametrize(
+    ("actual_scores", "forecast_scores", "actual_confidence", "forecast_confidence", "expected"),
+    [
+        (
+            {"semantic_relevance": 0.8, "dashboard_relevance": 0.1, "match_score": 0.1},
+            {"semantic_relevance": 0.7, "dashboard_relevance": 1.0, "match_score": 1.0},
+            0.1,
+            1.0,
+            "Revenue Actual",
+        ),
+        (
+            {"semantic_relevance": 0.8, "dashboard_relevance": 0.4, "match_score": 1.0},
+            {"semantic_relevance": 0.8, "dashboard_relevance": 0.6, "match_score": 0.1},
+            1.0,
+            0.1,
+            "Revenue Forecast",
+        ),
+        (
+            {"semantic_relevance": 0.8, "dashboard_relevance": 0.5, "match_score": 0.4},
+            {"semantic_relevance": 0.8, "dashboard_relevance": 0.5, "match_score": 0.6},
+            1.0,
+            0.1,
+            "Revenue Forecast",
+        ),
+        (
+            {"semantic_relevance": 0.8, "dashboard_relevance": 0.5, "match_score": 0.6},
+            {"semantic_relevance": 0.8, "dashboard_relevance": 0.5, "match_score": 0.6},
+            0.1,
+            1.0,
+            "Revenue Forecast",
+        ),
+    ],
+)
+def test_baseline_selection_uses_semantic_dashboard_match_then_confidence_priority(
+    actual_scores,
+    forecast_scores,
+    actual_confidence,
+    forecast_confidence,
+    expected,
+):
+    result = FinancialModelService().model(
+        scenario="What if revenue actual and revenue forecast fall by 10%?",
+        dashboard_data={},
+        kpi_insights={"kpis": [
+            {
+                "kpi_name": "Revenue Actual",
+                "kpi_value": 10_000_000,
+                "kpi_unit": "AED",
+                "confidence_score": actual_confidence,
+                "_scoring": actual_scores,
+            },
+            {
+                "kpi_name": "Revenue Forecast",
+                "kpi_value": 8_000_000,
+                "kpi_unit": "AED",
+                "confidence_score": forecast_confidence,
+                "_scoring": forecast_scores,
+            },
+        ]},
+        actions=[],
+        rules=[],
+    )
+
+    assert result["scenario_exposure"]["primary_baseline"]["name"] == expected
 
 
 def test_current_financial_exposure_uses_generic_financial_risk_signals():
@@ -203,6 +350,55 @@ def test_kpi_confidence_and_business_importance_change_model_confidence_and_seve
         high_evidence["scenario_exposure"]["severity"]
         != low_evidence["scenario_exposure"]["severity"]
     )
+
+
+def test_missing_confidence_and_importance_remain_unavailable():
+    result = FinancialModelService().model(
+        scenario="What if production throughput decreases by 20%?",
+        dashboard_data={},
+        kpi_insights={"kpis": [{
+            "kpi_name": "Production throughput",
+            "kpi_value": 90,
+        }]},
+        actions=[],
+        rules=[],
+    )
+
+    scenario = result["scenario_exposure"]
+    assert scenario["confidence"] is None
+    assert scenario["confidence_reason"]
+    driver = scenario["impact_drivers"][0]
+    assert driver["confidence"] is None
+    assert driver["confidence_reason"]
+    assert driver["business_importance"] is None
+    assert driver["business_importance_reason"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kpis",
+    [
+        {},
+        {"kpis": [{"kpi_name": "Cash flow", "kpi_value": 100}]},
+    ],
+)
+async def test_simulation_does_not_invent_risk_metrics_without_a_risk_kpi(kpis):
+    simulation = await SimulationService().run({
+        "query": "Assess enterprise risk",
+        "scenario": {},
+        "dashboard_data": {},
+        "kpi_insights": kpis,
+        "actions": [],
+        "action_stats": {},
+        "rules": [],
+        "knowledge_graph_data": {},
+    })
+
+    metrics = simulation["metrics"]
+    assert metrics["risk_score"] is None
+    assert metrics["risk_score_reason"]
+    assert metrics["impact_probability"] is None
+    assert metrics["impact_probability_reason"]
 
 
 def test_impact_registry_covers_each_business_category():

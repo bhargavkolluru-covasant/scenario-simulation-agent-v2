@@ -120,7 +120,8 @@ async def test_graph_unavailable_degrades_without_stopping_downstream(monkeypatc
 
     assert state["graph_summary"]["usable_for_simulation"] is False
     assert state["graph_summary"]["explanation"].startswith("Graph unavailable")
-    assert simulation["metrics"]["risk_score"] >= 0
+    assert simulation["metrics"]["risk_score"] is None
+    assert simulation["metrics"]["risk_score_reason"]
     assert impact["overall_severity"]
 
 

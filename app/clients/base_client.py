@@ -168,10 +168,7 @@ class BaseClient:
         # Authorization
         # ------------------------------------------
 
-        effective_token = (
-            self.auth_token
-            or settings.access_token
-        )
+        effective_token = self.auth_token
 
         if effective_token:
 
@@ -328,7 +325,7 @@ class BaseClient:
         except httpx.HTTPStatusError as exc:
             logger.error(
                 f"[BaseClient] HTTP status error for GET {url}: "
-                f"{exc.response.status_code} - {exc.response.text}"
+                f"{exc.response.status_code}"
             )
             raise
         except httpx.TimeoutException as exc:
@@ -407,7 +404,7 @@ class BaseClient:
         except httpx.HTTPStatusError as exc:
             logger.error(
                 f"[BaseClient] HTTP status error for POST {url}: "
-                f"{exc.response.status_code} - {exc.response.text}"
+                f"{exc.response.status_code}"
             )
             raise
         except httpx.TimeoutException as exc:

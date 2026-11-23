@@ -3,6 +3,9 @@ import pytest
 from app.clients.procurement_client import ProcurementClient
 
 
+pytestmark = pytest.mark.integration
+
+
 @pytest.mark.asyncio
 async def test_procurement_connectivity():
     client = ProcurementClient()

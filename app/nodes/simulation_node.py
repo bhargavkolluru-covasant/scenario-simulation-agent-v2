@@ -18,13 +18,8 @@ async def simulation_node(state: SimulationState) -> SimulationState:
         simulation_result = await service.run(state)
         state["simulation_result"] = simulation_result
         logger.info("[simulation_node] Simulation completed successfully")
-    except Exception as exc:
-        logger.error(f"[simulation_node] Simulation execution error: {exc}")
-        state["simulation_result"] = {
-            "scenario_id": "ERR-SIM",
-            "scenario_name": "Failed Simulation",
-            "error": str(exc),
-            "metrics": {},
-        }
+    except Exception:
+        logger.exception("[simulation_node] Simulation execution failed")
+        raise
 
     return state

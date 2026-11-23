@@ -1,6 +1,8 @@
 import logging
 import os
 import sys
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 # Ensure UTF-8 output on Windows
 if sys.platform.startswith("win"):
@@ -39,6 +41,16 @@ logger = logging.getLogger(
     "scenario_simulation"
 )
 
+
+PRIMARY_LLM_PROVIDER = "GROQ"
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
+    logger.info("Primary LLM Provider: %s", PRIMARY_LLM_PROVIDER)
+    yield
+
+
 app = FastAPI(
     title="ARIIA Scenario Simulation Agent",
     description=(
@@ -46,6 +58,7 @@ app = FastAPI(
         "Simulation and Impact Analysis Engine"
     ),
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.include_router(router)
@@ -57,6 +70,7 @@ def health():
         "status": "healthy",
         "service":
             "scenario_simulation_agent",
+        "primary_llm_provider": PRIMARY_LLM_PROVIDER,
     }
 
 

@@ -897,21 +897,38 @@ def rank_kpis_by_formula(
             entity_rel = 0.4
 
         # 4. Confidence (10%)
-        raw_conf = next((item[key] for key in ("confidence_score", "confidence") if item.get(key) is not None), 0.7)
+        raw_conf = next(
+            (
+                item[key]
+                for key in ("confidence_score", "confidence")
+                if item.get(key) not in (None, "")
+            ),
+            None,
+        )
+        conf = None
+        confidence_reason = None
         try:
-            conf = float(raw_conf)
-            if conf > 1.0:
-                conf /= 100.0
-            conf = min(max(conf, 0.0), 1.0)
+            if raw_conf is not None:
+                conf = float(raw_conf)
+                if conf > 1.0:
+                    conf /= 100.0
+                conf = min(max(conf, 0.0), 1.0)
         except (ValueError, TypeError):
-            conf = 0.7
+            confidence_reason = "Source KPI confidence was not numeric."
+        if conf is None and confidence_reason is None:
+            confidence_reason = "No source KPI confidence data was provided."
 
+        score_components = [
+            (0.25, dashboard_rel),
+            (0.25, scenario_rel),
+            (0.20, entity_rel),
+            (0.20, semantic_score),
+        ]
+        if conf is not None:
+            score_components.append((0.10, conf))
         total_score = round(
-            0.25 * dashboard_rel
-            + 0.25 * scenario_rel
-            + 0.20 * entity_rel
-            + 0.20 * semantic_score
-            + 0.10 * conf,
+            sum(weight * score for weight, score in score_components)
+            / sum(weight for weight, _ in score_components),
             4,
         )
 
@@ -924,6 +941,7 @@ def rank_kpis_by_formula(
             "entity_relevance": entity_rel,
             "semantic_relevance": semantic_score,
             "confidence": conf,
+            "confidence_reason": confidence_reason,
             "total_score": total_score,
         }
         scored_list.append(item_copy)
@@ -957,6 +975,7 @@ def rank_kpis_by_formula(
         "business_relevance": business_relevance,
         "confidence": p_candidate["_scoring"]["confidence"],
         "confidence_score": p_candidate["_scoring"]["confidence"],
+        "confidence_reason": p_candidate["_scoring"]["confidence_reason"],
         "total_score": p_candidate["_scoring"]["total_score"],
     }
 
@@ -978,6 +997,7 @@ def rank_kpis_by_formula(
             "unit": s_unit,
             "evidence": s_evidence,
             "confidence": s_candidate["_scoring"]["confidence"],
+            "confidence_reason": s_candidate["_scoring"]["confidence_reason"],
             "total_score": s_candidate["_scoring"]["total_score"],
         })
 

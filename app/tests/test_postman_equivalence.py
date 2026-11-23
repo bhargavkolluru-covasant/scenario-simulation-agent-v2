@@ -7,17 +7,28 @@ import pytest
 
 from app.clients.base_client import BaseClient, compare_headers
 from app.config.settings import settings
-from app.tests.test_dashboard_manual import URL, _safe_headers
 from app.tests.test_token_diagnostics import token_diagnostics
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 @pytest.mark.skipif(
     os.getenv("RUN_ARIIA_MANUAL_TEST") != "1",
     reason="Set RUN_ARIIA_MANUAL_TEST=1 to send a live ARIIA request.",
 )
 async def test_postman_equivalence_request() -> None:
-    client = BaseClient(base_url=settings.PLATFORM_BACKEND_URL)
+    if not settings.access_token or not settings.enterprise_id or not settings.domain_ids:
+        pytest.skip(
+            "Set ARIIA_ACCESS_TOKEN, ARIIA_ENTERPRISE_ID, and ARIIA_DOMAIN_IDS "
+            "to send the live ARIIA request."
+        )
+
+    client = BaseClient(
+        base_url=settings.PLATFORM_BACKEND_URL,
+        auth_token=settings.access_token,
+        enterprise_id=settings.enterprise_id,
+        domain_ids=settings.domain_ids,
+    )
     generated_headers = client._get_headers()
     headers = {
         name: generated_headers[name]
@@ -28,7 +39,7 @@ async def test_postman_equivalence_request() -> None:
     )
 
     print("Constructed request:", json.dumps({"method": "GET", "url": url}, indent=2))
-    print("All outgoing headers:", json.dumps(_safe_headers(headers), indent=2))
+    print("All outgoing headers:", json.dumps(client._mask_headers(headers), indent=2))
     print(
         "Safe token metadata:",
         json.dumps(token_diagnostics(settings.access_token), indent=2),

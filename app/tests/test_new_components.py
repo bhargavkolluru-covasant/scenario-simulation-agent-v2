@@ -1,6 +1,8 @@
 import pytest
-from app.services.gemini_service import GeminiService, get_gemini_service, get_llm
-from app.services.scenario_parser_service import ScenarioParserService
+from app.services.scenario_parser_service import (
+    ScenarioClarificationError,
+    ScenarioParserService,
+)
 from app.services.explainability_service import ExplainabilityService
 from app.services.rule_compilation_service import RuleCompilationService
 from app.nodes.scenario_parser_node import scenario_parser_node
@@ -14,28 +16,33 @@ from app.nodes.compile_rule_node import compile_rule_node
 from app.state.simulation_state import SimulationState
 
 
-@pytest.mark.asyncio
-async def test_gemini_service_initialization():
-    service = get_gemini_service()
-    assert isinstance(service, GeminiService)
-    assert service.model == "gemini-1.5-pro"
-    llm = get_llm()
-    assert llm.model == "gemini-1.5-pro"
+class OfflineLLM:
+    is_configured = False
+
+
+class StructuredScenarioLLM:
+    is_configured = True
+
+    async def generate_json(self, **kwargs):
+        return {
+            "scenario_type": "vendor_failure",
+            "target_entity": "Supplier ABC",
+            "change_type": "decrease",
+            "change_percentage": 20,
+            "time_horizon": "next quarter",
+        }
+
+
+class OfflineRuleCompilationClient:
+    async def post_compile_rule(self, payload):
+        return None
 
 
 @pytest.mark.asyncio
-async def test_scenario_parser_service():
-    parser = ScenarioParserService()
-    query = "What if supplier ABC fails next quarter?"
-    scenario = await parser.parse(query)
-
-    assert isinstance(scenario, dict)
-    assert scenario.get("scenario_type") == "enterprise_scenario"
-    assert "abc" in scenario.get("target_entity", "").lower()
-    assert scenario.get("change_type") == "scenario_change"
-    assert scenario.get("change_percentage") == 0
-    assert scenario.get("time_horizon") == "next quarter"
-    assert scenario.get("domain") == "unspecified"
+async def test_scenario_parser_requires_structured_provider():
+    parser = ScenarioParserService(llm_service=OfflineLLM())
+    with pytest.raises(ScenarioClarificationError):
+        await parser.parse("What if supplier ABC fails next quarter?")
 
 
 @pytest.mark.asyncio
@@ -43,7 +50,10 @@ async def test_scenario_parser_node():
     state: SimulationState = {
         "query": "What if supplier ABC fails next quarter?",
     }
-    result = await scenario_parser_node(state)
+    result = await scenario_parser_node(
+        state,
+        service=ScenarioParserService(llm_service=StructuredScenarioLLM()),
+    )
     assert "scenario" in result
     assert result["scenario"]["scenario_type"] == "vendor_failure"
     assert result["current_node"] == "scenario_parser"
@@ -84,13 +94,16 @@ async def test_strategy_selector_node():
         "rules": rules,
     }
     node_result = await strategy_selector_node(state)
-    assert "strategy" in node_result
+    assert "simulation_strategy" in node_result
     assert node_result["current_node"] == "strategy_selector"
 
 
 @pytest.mark.asyncio
 async def test_rule_compilation_service_and_node():
-    compilation_service = RuleCompilationService()
+    compilation_service = RuleCompilationService(
+        client=OfflineRuleCompilationClient(),
+        llm_service=OfflineLLM(),
+    )
     scenario = {
         "scenario_type": "vendor_failure",
         "target_entity": "Supplier Acme",
@@ -116,7 +129,7 @@ async def test_rule_compilation_service_and_node():
 
 @pytest.mark.asyncio
 async def test_explainability_service_and_node():
-    service = ExplainabilityService()
+    service = ExplainabilityService(llm_service=OfflineLLM())
     state: SimulationState = {
         "scenario": {
             "scenario_type": "vendor_failure",
@@ -148,6 +161,10 @@ async def test_explainability_service_and_node():
                 "urgency": "IMMEDIATE",
             }
         ],
+        "primary_risk": {
+            "name": "Supplier failure",
+            "business_impact": "Production may be delayed.",
+        },
     }
 
     explanation = await service.explain(state)
@@ -159,6 +176,6 @@ async def test_explainability_service_and_node():
     assert "risk_explanation" in explanation
     assert "recommendation_rationale" in explanation
 
-    node_result = await explainability_node(state)
+    node_result = await explainability_node(state, service=service)
     assert "explanation" in node_result
     assert node_result["current_node"] == "explainability"
