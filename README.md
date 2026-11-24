@@ -155,6 +155,18 @@ Secure interim financing
 
 ## Run Locally
 
+Copy the environment template and set the required values:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Set `GROQ_API_KEY` and `PLATFORM_BACKEND_URL` in `.env` before starting the
+application. Startup reports which required setting is missing or invalid.
+Simulation requests must also send `X-Enterprise-Id` and `X-Domain-Id`; these
+tenant values are validated per request and are not required as static startup
+configuration.
+
 Create a virtual environment:
 
 ```bash

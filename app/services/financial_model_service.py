@@ -1,6 +1,9 @@
+import logging
 import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+
+logger = logging.getLogger(__name__)
 
 _NAME_KEYS = (
     "kpi_name",
@@ -533,7 +536,7 @@ def _combine_severity(levels: Iterable[str]) -> str:
     max_value = max((_severity_value(level) for level in levels), default=0)
     return {0: "UNQUANTIFIED", 1: "LOW", 2: "MEDIUM", 3: "HIGH", 4: "CRITICAL"}[max_value]
 
-
+ 
 class FinancialModelService:
     """Build a domain-agnostic impact assessment from KPI and scenario evidence."""
 
@@ -676,6 +679,16 @@ class FinancialModelService:
             key=lambda candidate: candidate["priority"],
             reverse=True,
         )
+        alternative_record_ids = {
+            id(candidate["item"]["record"])
+            for candidate in baseline_candidates[1:]
+        }
+        if alternative_record_ids:
+            affected = [
+                item
+                for item in affected
+                if id(item["record"]) not in alternative_record_ids
+            ]
         primary_baseline = None
         alternative_baselines = []
         if baseline_candidates:
@@ -696,6 +709,11 @@ class FinancialModelService:
                     primary_baseline = baseline
                 else:
                     alternative_baselines.append(baseline)
+        if primary_baseline:
+            logger.info(
+                "Selected primary baseline:\n%s",
+                primary_baseline["name"],
+            )
         adverse = _is_adverse(scenario_text, direction, affected)
         affected_categories = list(dict.fromkeys(
             item["category"] for item in affected

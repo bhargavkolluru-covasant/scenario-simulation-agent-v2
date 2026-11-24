@@ -39,7 +39,10 @@ class ActionSelectorService:
             )
             return []
 
-        dashboard_context = _context_text(state.get("dashboard_semantics"))
+        dashboard_context = _context_text(
+            (state.get("dashboard_context") or {}).get("dashboard_semantics")
+            or state.get("dashboard_semantics")
+        )
         scenario_context = (
             _context_text(state.get("scenario_semantics"))
             or str(state.get("query") or "")

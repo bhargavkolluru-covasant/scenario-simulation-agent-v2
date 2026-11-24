@@ -23,8 +23,6 @@ async def relevant_kpi_selector_node(state: SimulationState) -> SimulationState:
 
     state["dashboard_kpi_records"] = selection["dashboard_kpi_records"]
     state["selected_dashboard_kpi_names"] = selection["selected_dashboard_kpi_names"]
-    state["allowed_kpi_terms"] = selection["allowed_kpi_terms"]
-    state["strict_dashboard_filter"] = selection["strict_dashboard_filter"]
     state["primary_kpi"] = selection.get("primary_kpi")
     state["supporting_kpis"] = selection.get("supporting_kpis") or []
 

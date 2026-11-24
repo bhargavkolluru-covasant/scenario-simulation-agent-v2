@@ -404,6 +404,7 @@ async def test_semantic_risks_and_actions_win_over_fallbacks():
     assert state["primary_risk"] is primary_risk
     assert state["secondary_risk"] is secondary_risk
     assert state["selected_actions"] is semantic_actions
+    assert "semantic_reasoning" not in state
 
 
 def test_fallback_risk_and_actions_are_category_agnostic():

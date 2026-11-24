@@ -20,7 +20,12 @@ class RiskSelectorService:
     """Create evidence-grounded fallback risks when semantic reasoning has none."""
 
     def select_risks(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        dashboard_semantics = state.get("dashboard_semantics") or {}
+        dashboard_context = state.get("dashboard_context") or {}
+        dashboard_semantics = (
+            dashboard_context.get("dashboard_semantics")
+            or state.get("dashboard_semantics")
+            or {}
+        )
         scenario_semantics = state.get("scenario_semantics") or {}
         primary_kpi = state.get("primary_kpi") or {}
         supporting_kpis = state.get("supporting_kpis") or []

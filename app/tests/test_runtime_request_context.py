@@ -52,8 +52,13 @@ def test_simulation_request_context_is_used_for_workflow(monkeypatch, caplog):
     response_body = response.json()
     assert received_state["access_token"] == "request-token"
     assert received_state["dashboard_id"] == "dash-request"
-    assert received_state["enterprise_id"] == "ent-request"
-    assert received_state["domain_ids"] == ["domain-one", "domain-two"]
+    assert received_state["context"] == {
+        "enterprise_id": "ent-request",
+        "domain_ids": ["domain-one", "domain-two"],
+        "scope_id": routes.settings.scope_id or "",
+    }
+    assert "enterprise_id" not in received_state
+    assert "domain_ids" not in received_state
     assert "domain_id" not in received_state
     assert received_state["include_full_state"] is True
     assert response_body["state"]["access_token"] == "******"
@@ -62,8 +67,8 @@ def test_simulation_request_context_is_used_for_workflow(monkeypatch, caplog):
 
     headers = DashboardClient(
         auth_token=received_state["access_token"],
-        enterprise_id=received_state["enterprise_id"],
-        domain_ids=received_state["domain_ids"],
+        enterprise_id=received_state["context"]["enterprise_id"],
+        domain_ids=received_state["context"]["domain_ids"],
     )._get_headers()
     assert headers["Authorization"] == "Bearer request-token"
     assert headers["X-Enterprise-Id"] == "ent-request"
@@ -274,6 +279,57 @@ def test_full_state_redacts_node_and_report_exceptions(monkeypatch):
         response_body["state"]["simulation_result"]["error"]
         == "Internal processing error."
     )
+
+
+def test_full_state_includes_baseline_selection_validation(monkeypatch):
+    baseline_selection = {
+        "primary_baseline": {
+            "name": "Cashflow Actual",
+            "value": 10_000_000,
+            "currency": "AED",
+        },
+        "alternative_baselines": [{
+            "name": "Cashflow Forecast",
+            "value": 8_000_000,
+            "currency": "AED",
+        }],
+    }
+
+    async def fake_ainvoke(state):
+        return {
+            **state,
+            "status": "COMPLETED",
+            "simulation_result": {
+                "metrics": {
+                    "financial_model": {
+                        "scenario_exposure": baseline_selection,
+                    },
+                },
+            },
+            "final_report": {
+                "report_id": "BASELINE-REPORT",
+                "markdown_report": "Simulation complete.",
+            },
+        }
+
+    monkeypatch.setattr(routes.workflow, "ainvoke", fake_ainvoke)
+    app = FastAPI()
+    app.include_router(routes.router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/simulation/simulate",
+            json={"query": "Cashflow decreases by 10%"},
+            headers={
+                "Authorization": "Bearer caller-token",
+                "X-Enterprise-Id": "enterprise",
+                "X-Domain-Id": "domain",
+            },
+            params={"include_full_state": "true"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["state"]["baseline_selection"] == baseline_selection
 
 
 @pytest.mark.asyncio

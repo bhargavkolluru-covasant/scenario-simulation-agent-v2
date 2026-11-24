@@ -61,7 +61,6 @@ async def test_scenario_parser_node():
 
 @pytest.mark.asyncio
 async def test_strategy_selector_node():
-    # Vendor failure scenario -> SUPPLY_CHAIN
     vendor_scenario = {
         "scenario_type": "vendor_failure",
         "domain": "supply_chain",
@@ -70,31 +69,47 @@ async def test_strategy_selector_node():
     }
     semantic_entities = [{"entity_type": "vendor", "entity_name": "Supplier Acme"}]
     rules = [{"category": "vendor_risk", "rule_type": "operational"}]
+    vendor_dashboard = {
+        "dashboard_semantics": {
+            "capabilities": {
+                "scenario_strategy_map": {"vendor_failure": "SUPPLY_CHAIN"},
+            },
+        },
+    }
 
-    strategy = determine_strategy(vendor_scenario, semantic_entities, rules)
-    assert strategy in (SimulationStrategy.SUPPLY_CHAIN, SimulationStrategy.HYBRID)
+    strategy = determine_strategy(
+        vendor_scenario,
+        dashboard_context=vendor_dashboard,
+    )
+    assert strategy == SimulationStrategy.SUPPLY_CHAIN
 
-    # Financial scenario -> FINANCIAL_IMPACT
     fin_scenario = {
         "scenario_type": "financial_impact",
         "domain": "finance",
         "target_entity": "Accounts Payable",
         "change_type": "default",
     }
-    fin_entities = [{"entity_type": "invoice", "entity_name": "INV-101"}]
-    fin_rules = [{"category": "financial_exposure", "rule_type": "payment"}]
+    fin_strategy = determine_strategy(
+        fin_scenario,
+        dashboard_context={
+            "capabilities": {
+                "scenario_strategy_map": {
+                    "financial_impact": "FINANCIAL_IMPACT",
+                },
+            },
+        },
+    )
+    assert fin_strategy == SimulationStrategy.FINANCIAL_IMPACT
 
-    fin_strategy = determine_strategy(fin_scenario, fin_entities, fin_rules)
-    assert fin_strategy in (SimulationStrategy.FINANCIAL_IMPACT, SimulationStrategy.HYBRID)
-
-    # Node execution
     state: SimulationState = {
         "scenario": vendor_scenario,
         "semantic_entities": semantic_entities,
         "rules": rules,
+        "dashboard_context": vendor_dashboard,
     }
     node_result = await strategy_selector_node(state)
     assert "simulation_strategy" in node_result
+    assert node_result["simulation_strategy"] == "SUPPLY_CHAIN"
     assert node_result["current_node"] == "strategy_selector"
 
 

@@ -25,6 +25,7 @@ async def risk_selector_node(
     )
 
     state["current_node"] = "risk_selector"
+    state.pop("risk_context", None)
 
     semantic = state.get("semantic_reasoning", {})
     if not isinstance(semantic, dict):
@@ -44,12 +45,6 @@ async def risk_selector_node(
         state["secondary_risk"] = (
             semantic_secondary if isinstance(semantic_secondary, dict) else None
         )
-
-        state["risk_context"] = {
-            "primary_risk": state["primary_risk"],
-            "secondary_risk": state["secondary_risk"],
-            "source": "semantic_reasoning",
-        }
 
     elif not isinstance(state.get("primary_risk"), dict):
 
@@ -72,14 +67,6 @@ async def risk_selector_node(
         state["secondary_risk"] = (
             result.get("secondary_risk")
         )
-
-        state["risk_context"] = result
-    else:
-        state["risk_context"] = {
-            "primary_risk": state["primary_risk"],
-            "secondary_risk": state.get("secondary_risk"),
-            "source": "state",
-        }
 
     logger.info(
         "[risk_selector_node] Primary Risk='%s' Secondary Risk='%s'",

@@ -41,6 +41,7 @@ async def action_selector_node(
         existing_actions = state.get("selected_actions")
         if isinstance(existing_actions, list):
             semantic_actions = existing_actions
+    state.pop("semantic_reasoning", None)
 
     # --------------------------------------------------
     # LLM DRIVEN ACTIONS

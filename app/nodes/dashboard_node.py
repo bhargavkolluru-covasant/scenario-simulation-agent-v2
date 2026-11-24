@@ -163,17 +163,18 @@ async def dashboard_node(
             "DASHBOARD_ID must be configured."
         )
 
+    context = state.get("context") or {}
     client = DashboardClient(
         auth_token=state.get(
             "access_token"
         ),
-        enterprise_id=state.get(
+        enterprise_id=context.get(
             "enterprise_id"
         ),
-        domain_ids=state.get(
+        domain_ids=context.get(
             "domain_ids"
         ),
-        scope_id=state.get(
+        scope_id=context.get(
             "scope_id"
         ),
     )

@@ -5,475 +5,153 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-DASHBOARD_TAXONOMY: Dict[str, Dict[str, Any]] = {
-    "LAND_FEASIBILITY": {
-        "business_intent": "Maximize risk-adjusted return on development options while ensuring zoning, hurdle rate, and capital feasibility",
-        "decision_type": "Capital Allocation & Feasibility Hurdle Evaluation",
-        "relevant_data_domain": "Real Estate Feasibility, Highest and Best Use (HBU) Valuation, and Development Cost Accounting",
-        "supported_scenario_types": [
-            "Capital Reduction",
-            "Commercial Unviability",
-            "IRR Hurdle Rate Stress",
-            "Zoning Approval Delay",
-            "Development Cost Escalation",
-            "GDV Value Decline",
-            "Portfolio Prioritization",
-        ],
-        "kpi_groups": [
-            "development feasibility",
-            "investment returns",
-            "development value and cost",
-            "zoning and approvals",
-            "portfolio ranking",
-        ],
-        "kpi_terms": [
-            "hbu option",
-            "highest and best use",
-            "weighted score",
-            "hbu score",
-            "rank",
-            "irr",
-            "internal rate of return",
-            "gdv",
-            "gross development value",
-            "development cost",
-            "hurdle rate",
-            "zoning confidence",
-            "approved development option",
-            "investment capital",
-            "capital allocation",
-            "feasibility",
-        ],
-        "risk_groups": [
-            "Investment Viability Risk",
-            "Capital Allocation Risk",
-            "Portfolio Optimization Risk",
-            "Development Feasibility Risk",
-        ],
-        "action_groups": [
-            "Investment prioritization",
-            "Feasibility model review",
-            "Capital allocation optimization",
-            "Development option comparison",
-        ],
-    },
-    "MARKET_INTELLIGENCE": {
-    "business_intent": "Monitor market demand, pricing dynamics, competitor activity, supply pressure, and sentiment trends",
-    "decision_type": "Market Strategy & Demand Management",
-    "relevant_data_domain": "Market Intelligence, Pricing Analytics & Competitive Monitoring",
-    "supported_scenario_types": [
-        "Price Decline",
-        "Market Slowdown",
-        "Supply Increase",
-        "Sentiment Deterioration",
-        "Competitor Expansion",
-        "Demand Reduction",
-    ],
-    "kpi_groups": [
-        "market pricing",
-        "supply",
-        "competitor activity",
-        "sentiment",
-        "market confidence",
-    ],
-    "kpi_terms": [
-        "dld price psf",
-        "price psf",
-        "price trend",
-        "reidin",
-        "reidin index",
-        "upcoming supply",
-        "competitor launches",
-        "news sentiment",
-        "market sentiment",
-        "market confidence",
-        "sales velocity",
-        "supply",
-        "demand",
-    ],
-    "risk_groups": [
-        "Market Oversupply Risk",
-        "Demand Slowdown Risk",
-        "Price Compression Risk",
-        "Competitive Pressure Risk",
-        "Market Confidence Risk",
-    ],
-    "action_groups": [
-        "Pricing strategy",
-        "Launch strategy",
-        "Demand generation",
-        "Inventory optimisation",
-        "Market positioning",
-    ],
-},
-    "PROJECT_DELIVERY": {
-        "business_intent": "Ensure on-time, on-budget project delivery across critical milestones, EPC contractors, and handover schedules",
-        "decision_type": "Schedule Recovery, Critical Path Acceleration & Contractor Governance",
-        "relevant_data_domain": "EPC Project Controls, Construction Schedule & Contractor Performance",
-        "supported_scenario_types": [
-            "Project Delay",
-            "Handover Slippage",
-            "Milestone Variance",
-            "Contractor Underperformance",
-            "Budget Overrun",
-            "Critical Path Disruption",
-        ],
-        "kpi_groups": ["project schedule", "delivery cost", "contractor performance"],
-        "kpi_terms": [
-            "project delay", "contract variance", "budget overrun",
-            "schedule performance", "contractor performance", "handover",
-            "construction risk", "milestone variance", "critical path",
-            "project handover delay",
-        ],
-        "risk_groups": [
-            "Project Delivery Risk",
-            "Cost Escalation Risk",
-            "Schedule Slippage Risk",
-            "Resource Constraint Risk",
-        ],
-        "action_groups": ["Schedule recovery", "Resource reallocation", "Contractor performance"],
-    },
-    "FINANCE": {
-        "business_intent": "Preserve working capital liquidity, control expenditure variance, and optimize cash flow timing",
-        "decision_type": "Liquidity Management & Working Capital Allocation",
-        "relevant_data_domain": "Corporate Treasury, Accounts Payable/Receivable, and Cash Flow Projections",
-        "supported_scenario_types": [
-            "Cash Flow Deficit",
-            "Working Capital Squeeze",
-            "Collections Delay",
-            "Cost Inflation",
-        ],
-        "kpi_groups": ["cash flow", "liquidity", "revenue and margin", "collections"],
-        "kpi_terms": [
-            "cash flow", "cashflow", "liquidity", "revenue", "profit",
-            "margin", "receivables", "collections", "debt", "working capital",
-        ],
-        "risk_groups": ["Liquidity Risk", "Revenue Risk", "Margin Risk"],
-        "action_groups": ["Cash flow protection", "Collections acceleration", "Cost control"],
-    },
-    "PORTFOLIO": {
-        "business_intent": "Optimize risk-adjusted returns and capital allocation across enterprise asset portfolios",
-        "decision_type": "Portfolio Capital Allocation & Asset Divestment/Investment",
-        "relevant_data_domain": "Asset Management, Portfolio Performance & Weighted Scoring",
-        "supported_scenario_types": [
-            "Capital Budget Cut",
-            "Portfolio Rebalancing",
-            "Asset Underperformance",
-        ],
-        "kpi_groups": ["portfolio ranking", "asset performance", "investment returns"],
-        "kpi_terms": [
-            "portfolio rank", "portfolio score", "asset performance",
-            "investment return", "irr", "gdv", "weighted score",
-            "capital allocation", "portfolio value",
-        ],
-        "risk_groups": [
-            "Portfolio Optimization Risk",
-            "Capital Allocation Risk",
-            "Investment Viability Risk",
-        ],
-        "action_groups": ["Portfolio prioritization", "Capital allocation", "Asset optimization"],
-    },
-    "SALES": {
-        "business_intent": "Accelerate sales velocity, maximize pipeline conversion, and protect commercial revenue generation",
-        "decision_type": "Pipeline Prioritization & Commercial Revenue Protection",
-        "relevant_data_domain": "Commercial CRM, Bookings, Conversion Funnel & Sales Pipeline",
-        "supported_scenario_types": [
-            "Revenue Decline",
-            "Booking Cancellation",
-            "Lead Conversion Drop",
-            "Sales Cycle Lengthening",
-        ],
-        "kpi_groups": ["bookings", "conversion", "revenue", "channel performance"],
-        "kpi_terms": [
-            "bookings", "sales conversion", "revenue", "lead conversion",
-            "channel performance", "pipeline conversion", "sales pipeline",
-        ],
-        "risk_groups": ["Revenue Risk", "Pipeline Risk", "Conversion Risk"],
-        "action_groups": ["Pipeline prioritization", "Conversion improvement", "Channel optimization"],
-    },
-    "CUSTOMER": {
-        "business_intent": "Retain key accounts, elevate customer lifetime value (LTV), and safeguard customer satisfaction (CSAT/NPS)",
-        "decision_type": "Key Account Retention & Service Quality Remediation",
-        "relevant_data_domain": "Customer Success, Retention, CSAT/NPS Surveys & Churn Analytics",
-        "supported_scenario_types": [
-            "Customer Churn",
-            "CSAT Degradation",
-            "NPS Reduction",
-            "Service SLA Breach",
-        ],
-        "kpi_groups": ["customer satisfaction", "retention", "loyalty", "customer value"],
-        "kpi_terms": [
-            "csat", "customer satisfaction", "retention", "nps",
-            "net promoter score", "customer churn", "customer lifetime value",
-            "customer experience",
-        ],
-        "risk_groups": [
-            "Customer Retention Risk",
-            "Customer Experience Risk",
-            "Customer Churn Risk",
-        ],
-        "action_groups": ["Customer recovery", "Retention improvement", "Service quality"],
-    },
-    "RISK": {
-        "business_intent": "Identify, monitor, and mitigate enterprise and operational risk exposures",
-        "decision_type": "Enterprise Risk Mitigation & Crisis Management",
-        "relevant_data_domain": "Enterprise Risk Register & Incident Response",
-        "supported_scenario_types": [
-            "Enterprise Risk Escalation",
-            "Operational Failure",
-            "Business Interruption",
-        ],
-        "kpi_groups": ["risk exposure", "risk likelihood", "control effectiveness"],
-        "kpi_terms": ["risk exposure", "risk likelihood", "risk rating", "control effectiveness"],
-        "risk_groups": ["Operational Risk", "Financial Risk", "Control Risk"],
-        "action_groups": ["Risk mitigation", "Control improvement", "Exposure monitoring"],
-    },
-    "COMPLIANCE": {
-        "business_intent": "Maintain regulatory adherence, enforce governance standards, and mitigate audit findings",
-        "decision_type": "Regulatory Remediation & Compliance Oversight",
-        "relevant_data_domain": "Enterprise Governance, Regulatory Compliance & Internal Audit",
-        "supported_scenario_types": [
-            "Regulatory Violation",
-            "Audit Control Deficiency",
-            "Sanctions Exposure",
-        ],
-        "kpi_groups": ["regulatory compliance", "audit", "policy controls"],
-        "kpi_terms": [
-            "regulatory", "compliance finding", "audit finding",
-            "policy exception", "control breach", "violation",
-        ],
-        "risk_groups": ["Regulatory Risk", "Audit Risk", "Control Risk"],
-        "action_groups": ["Regulatory remediation", "Audit response", "Control improvement"],
-    },
-    "PROCUREMENT": {
-        "business_intent": "Ensure vendor reliability, contract compliance, and sourcing cost efficiency",
-        "decision_type": "Supplier Performance Remediation & Sourcing Optimization",
-        "relevant_data_domain": "Procurement, Vendor Management & Purchase Order Execution",
-        "supported_scenario_types": [
-            "Supplier Disruption",
-            "Vendor Insolvency",
-            "Contract Variance",
-        ],
-        "kpi_groups": ["supplier performance", "contract management", "sourcing"],
-        "kpi_terms": [
-            "supplier performance", "vendor performance", "contract variance",
-            "procurement cost", "sourcing", "purchase order",
-        ],
-        "risk_groups": ["Supplier Performance Risk", "Contract Risk", "Sourcing Risk"],
-        "action_groups": ["Supplier recovery", "Contract review", "Sourcing optimization"],
-    },
-    "OPERATIONS": {
-        "business_intent": "Maintain high operational throughput, equipment availability, and capacity utilization",
-        "decision_type": "Capacity Rebalancing & Operational Continuity",
-        "relevant_data_domain": "Operational Operations, Supply Logistics & Asset Maintenance",
-        "supported_scenario_types": [
-            "Capacity Outage",
-            "Downtime Surge",
-            "Production Bottleneck",
-        ],
-        "kpi_groups": ["operational performance", "capacity", "service continuity"],
-        "kpi_terms": [
-            "operational performance", "throughput", "capacity",
-            "productivity", "downtime", "service level", "quality",
-        ],
-        "risk_groups": ["Operational Performance Risk", "Capacity Risk", "Continuity Risk"],
-        "action_groups": ["Capacity recovery", "Operational improvement", "Continuity planning"],
-    },
-}
-
-_CATEGORY_SIGNALS: Dict[str, Tuple[str, ...]] = {
-    "LAND_FEASIBILITY": (
-        "land feasibility", "hbu", "highest and best use", "zoning confidence",
-        "development option", "hurdle rate", "gdv", "development cost", "weighted score",
-    ),
-    "PROJECT_DELIVERY": (
-        "project delivery", "project delay", "schedule performance",
-        "contractor performance", "handover", "construction project",
-    ),
-    "FINANCE": ("finance dashboard", "cash flow", "liquidity", "receivables"),
-    "PORTFOLIO": ("portfolio dashboard", "portfolio ranking", "asset portfolio"),
-    "SALES": ("sales dashboard", "bookings", "lead conversion", "sales pipeline"),
-    "CUSTOMER": ("customer dashboard", "csat", "customer satisfaction", "nps", "retention"),
-    "RISK": ("risk dashboard", "risk exposure", "risk register"),
-    "COMPLIANCE": ("compliance dashboard", "audit findings", "regulatory compliance"),
-    "PROCUREMENT": ("procurement dashboard", "supplier performance", "vendor performance"),
-    "OPERATIONS": ("operations dashboard", "operational performance", "throughput"),
-    "MARKET_INTELLIGENCE": (
-    "market & competitive intelligence",
-    "market intelligence",
-    "dld",
-    "reidin",
-    "price psf",
-    "upcoming supply",
-    "competitor launches",
-    "market sentiment",
-    "news sentiment",
-    "sales velocity",
-    "market confidence",
-),
-}
+_METADATA_CONTAINER_KEYS = ("metadata", "dashboard_metadata")
+_SEMANTIC_CONTAINER_KEYS = ("semantic_metadata", "dashboard_semantics", "semantics")
+_SEMANTIC_FIELDS = (
+    "category", "dashboard_category", "business_domain", "domain",
+    "description", "dashboard_description", "themes", "widget_titles",
+    "kpi_groups", "kpi_terms", "kpi_names", "kpis", "kpi_definitions",
+    "metrics", "metric_definitions", "risk_groups", "action_groups",
+    "supported_scenario_types", "business_intent", "decision_type",
+    "relevant_data_domain", "category_evidence",
+)
+_KPI_NAME_KEYS = ("name", "kpi_name", "metric_name", "title", "label", "display_name")
+_CATEGORY_KEYS = ("category", "dashboard_category")
+_IDENTITY_KEYS = (
+    "option_id", "option_code", "development_option", "hbu_option",
+    "option_name", "candidate_id", "candidate", "project_name", "name", "id",
+)
 _LABEL_KEYS = {
     "title", "name", "label", "display_name", "dashboard_title", "section",
     "section_name", "widget_title", "kpi_name", "metric_name", "metric",
     "description",
 }
 _VALUE_KEYS = ("value", "current_value", "metric_value", "score", "amount", "count")
-_IDENTITY_KEYS = (
-    "option_id", "option_code", "development_option", "hbu_option",
-    "option_name", "candidate_id", "candidate", "project_name", "name", "id",
-)
+
 
 
 def _normalized(value: Any) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", str(value or "").casefold()))
 
+def _dashboard_metadata_layers(
+    definition: Dict[str, Any],
+    data: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    layers: List[Dict[str, Any]] = []
+    for root in (data, definition):
+        layers.append(root)
+        for container_key in _METADATA_CONTAINER_KEYS:
+            container = root.get(container_key)
+            if not isinstance(container, dict):
+                continue
+            layers.append(container)
+            for semantic_key in _SEMANTIC_CONTAINER_KEYS:
+                semantic = container.get(semantic_key)
+                if isinstance(semantic, dict):
+                    layers.append(semantic)
+        for semantic_key in _SEMANTIC_CONTAINER_KEYS:
+            semantic = root.get(semantic_key)
+            if isinstance(semantic, dict):
+                layers.append(semantic)
+    return layers
+
+
+def _metadata_value(
+    layers: List[Dict[str, Any]],
+    keys: Iterable[str],
+    default: Any = None,
+) -> Any:
+    for layer in reversed(layers):
+        for key in keys:
+            value = layer.get(key)
+            if value not in (None, ""):
+                return value
+    return default
+
+
+def _metadata_text(value: Any) -> str:
+    if isinstance(value, dict):
+        value = next(
+            (value[key] for key in ("name", "label", "value", "id") if value.get(key)),
+            "",
+        )
+    return str(value).strip() if value is not None else ""
+
+
+def _metadata_list(value: Any) -> List[Any]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, (list, tuple)):
+        return [item for item in value if item not in (None, "")]
+    return [value]
+
+
+def _semantic_metadata(layers: List[Dict[str, Any]]) -> Dict[str, Any]:
+    metadata: Dict[str, Any] = {}
+    for layer in layers:
+        for container_key in _SEMANTIC_CONTAINER_KEYS:
+            semantic = layer.get(container_key)
+            if isinstance(semantic, dict):
+                metadata.update(semantic)
+        for key in _SEMANTIC_FIELDS:
+            if key in layer and layer[key] not in (None, ""):
+                metadata[key] = layer[key]
+    return metadata
+
+
+def _metadata_kpi_names(metadata: Dict[str, Any]) -> List[str]:
+    names: List[str] = []
+    for key in ("kpi_names", "metric_names", "kpis", "kpi_definitions", "metrics", "metric_definitions"):
+        value = metadata.get(key)
+        if isinstance(value, dict):
+            values = (
+                [value]
+                if any(field in value for field in _KPI_NAME_KEYS)
+                else list(value.values())
+            )
+        else:
+            values = _metadata_list(value)
+        for item in values:
+            name = next(
+                (item[field] for field in _KPI_NAME_KEYS if isinstance(item, dict) and item.get(field)),
+                item if isinstance(item, str) else "",
+            )
+            if name:
+                names.append(str(name).strip())
+    return list(dict.fromkeys(names))
+
+
 def _extract_dashboard_semantics(
     definition: Dict[str, Any],
     data: Dict[str, Any],
 ) -> Dict[str, Any]:
-
-    dashboard_name = (
-        definition.get("name")
-        or data.get("name")
-        or ""
+    layers = _dashboard_metadata_layers(definition, data)
+    semantics = _semantic_metadata(layers)
+    title = _metadata_text(
+        _metadata_value(layers, ("title", "dashboard_title", "display_name", "name"), "")
     )
-
-    dashboard_description = (
-        definition.get("description")
-        or data.get("description")
-        or ""
+    description = _metadata_text(
+        _metadata_value(layers, ("dashboard_description", "description", "summary"), "")
     )
-    widgets = []
-
-    raw_widgets = (
-    definition.get("widgets")
-    or data.get("widgets")
-    or []
-)
-
-    for widget in raw_widgets:
-
-        if not isinstance(widget, dict):
-            continue
-
-        widgets.append(
-        {
-            "title": widget.get(
-                "title",
-                "",
-            ),
-            "description": widget.get(
-                "description",
-                "",
-            ),
-            "widget_type": widget.get(
-                "widget_type",
-                "",
-            ),
-        }
-    )
-
+    widgets = definition.get("widgets") or data.get("widgets") or []
     widget_titles = [
-        w["title"]
-        for w in widgets
-        if w["title"]
-    ]
+        str(widget.get("title", "")).strip()
+        for widget in widgets
+        if isinstance(widget, dict) and str(widget.get("title", "")).strip()
+    ] if isinstance(widgets, list) else []
 
-    all_text = " ".join(
-        [
-            dashboard_name,
-            dashboard_description,
-            *widget_titles,
-        ]
-    ).casefold()
-
-    themes = []
-
-    if any(
-        k in all_text
-        for k in (
-            "competitor",
-            "competition",
-            "launch",
-        )
-    ):
-        themes.append("competition")
-
-    if any(
-        k in all_text
-        for k in (
-            "sentiment",
-            "news",
-        )
-    ):
-        themes.append(
-            "market_sentiment"
-        )
-
-    if any(
-        k in all_text
-        for k in (
-            "price",
-            "psf",
-            "reidin",
-        )
-    ):
-        themes.append("pricing")
-
-    if any(
-        k in all_text
-        for k in (
-            "supply",
-            "units planned",
-        )
-    ):
-        themes.append("supply")
-
-    if any(
-        k in all_text
-        for k in (
-            "booking",
-            "sales",
-            "conversion",
-        )
-    ):
-        themes.append("sales")
-
-    if any(
-        k in all_text
-        for k in (
-            "irr",
-            "gdv",
-            "feasibility",
-            "hbu",
-        )
-    ):
-        themes.append(
-            "investment_feasibility"
-        )
-
-    business_domain = (
-        dashboard_name.split("]")
-        [-1]
-        .strip()
-        if "]" in dashboard_name
-        else dashboard_name
+    semantics.setdefault("dashboard_name", title)
+    semantics.setdefault("dashboard_description", description)
+    semantics.setdefault(
+        "business_domain",
+        _metadata_text(_metadata_value(layers, ("business_domain", "domain"), "")),
     )
-
-    return {
-        "business_domain":
-            business_domain,
-        "dashboard_name":
-            dashboard_name,
-        "dashboard_description":
-            dashboard_description,
-        "themes":
-            list(dict.fromkeys(themes)),
-        "widget_titles":
-            widget_titles,
-        "widget_count":
-            len(widget_titles),
-    }
+    semantics["themes"] = _metadata_list(semantics.get("themes"))
+    semantics["widget_titles"] = _metadata_list(
+        semantics.get("widget_titles") or widget_titles
+    )
+    semantics["widget_count"] = len(semantics["widget_titles"])
+    return semantics
 
 def _semantic_theme_score(
     kpi_name: str,
@@ -490,18 +168,6 @@ def _semantic_theme_score(
         len(candidate_tokens.intersection(context_tokens))
         / max(len(candidate_tokens), 1)
     )
-
-def _nested_strings(value: Any) -> Iterable[str]:
-    if isinstance(value, dict):
-        for key, child in value.items():
-            yield str(key)
-            yield from _nested_strings(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from _nested_strings(child)
-    elif isinstance(value, (str, int, float)):
-        yield str(value)
-
 
 def _dashboard_labels(value: Any) -> List[str]:
     labels: List[str] = []
@@ -573,16 +239,7 @@ def _metric_records(value: Any, terms: List[str]) -> List[Dict[str, Any]]:
 
 
 def resolve_dashboard_context(state: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Node 1: Dashboard Context Resolver
-    Understand what business domain the current dashboard represents.
-    Determines:
-    - Dashboard Category
-    - Business Intent
-    - Decision Type
-    - Relevant Data Domain
-    - Supported Scenario Types
-    """
+    """Resolve dashboard category and KPI meaning from supplied metadata only."""
     definition = state.get("dashboard_definition", {})
     data = state.get("dashboard_data", {})
     if not isinstance(definition, dict):
@@ -590,91 +247,72 @@ def resolve_dashboard_context(state: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(data, dict):
         data = {}
 
-    title = next(
-        (
-            str(source[key])
-            for source in (definition, data)
-            for key in ("title", "name", "dashboard_title", "display_name")
-            if source.get(key)
-        ),
-        "",
+    metadata_layers = _dashboard_metadata_layers(definition, data)
+    dashboard_semantics = _extract_dashboard_semantics(definition, data)
+    title = _metadata_text(
+        _metadata_value(metadata_layers, ("title", "dashboard_title", "display_name", "name"), "")
     )
-    labels = _dashboard_labels(definition) + _dashboard_labels(data)
-    evidence = " ".join((title, *labels, *_nested_strings(data))).casefold()
-    category_scores: Dict[str, int] = {}
-    for category, signals in _CATEGORY_SIGNALS.items():
-        score = sum(
-            6 if title and signal in title.casefold()
-            else 3 if any(signal in label.casefold() for label in labels)
-            else 1
-            for signal in signals
-            if signal in evidence
+    category_value = _metadata_value(metadata_layers, _CATEGORY_KEYS)
+    existing_context = state.get("dashboard_context")
+    if not isinstance(existing_context, dict):
+        existing_context = {}
+    if category_value in (None, ""):
+        category_value = (
+            existing_context.get("category")
+            or state.get("dashboard_category")
         )
-        category_scores[category] = score
+    category = _metadata_text(category_value).upper() or "UNCLASSIFIED"
+    category_resolved = category != "UNCLASSIFIED"
 
-    # Check if category already provided in state explicitly
-    explicit_category = str(state.get("dashboard_category") or "").upper()
-    if explicit_category in DASHBOARD_TAXONOMY:
-        category = explicit_category
-        has_dashboard_evidence = True
-    else:
-        category = max(category_scores, key=category_scores.get)
-        has_dashboard_evidence = category_scores[category] > 0
-        if not has_dashboard_evidence:
-            category = "UNCLASSIFIED"
-
-    dashboard_semantics = (
-    _extract_dashboard_semantics(
-        definition,
-        data,
-    )
-)
-    taxonomy = DASHBOARD_TAXONOMY.get(category, {})
-    sections = [
-        label for label in labels
-        if "section" in label.casefold()
-    ]
+    labels = _dashboard_labels(definition) + _dashboard_labels(data)
+    sections = [label for label in labels if "section" in label.casefold()]
     widget_names = [
         label for label in labels
         if any(key in label.casefold() for key in ("widget", "chart", "table"))
     ]
     dashboard_metric_names = [
-        record["name"]
-        for record in _metric_records(data, [])
+        record["name"] for record in _metric_records(data, [])
     ]
+    metadata_names = _metadata_kpi_names(dashboard_semantics)
     widget_metric_names = [
         part.strip()
-        for title in dashboard_semantics.get("widget_titles", [])
-        if title
-        for part in re.split(r"\s+(?:and|&)\s+|[,|/]", str(title), flags=re.IGNORECASE)
+        for widget_title in dashboard_semantics.get("widget_titles", [])
+        if widget_title
+        for part in re.split(r"\s+(?:and|&)\s+|[,|/]", str(widget_title), flags=re.IGNORECASE)
         if part.strip()
     ]
-    kpi_names = list(dict.fromkeys(dashboard_metric_names + widget_metric_names))
-    dashboard_kpi_terms = list(kpi_names)
+    kpi_names = list(dict.fromkeys(
+        metadata_names + dashboard_metric_names + widget_metric_names
+    ))
+    allowed_kpi_terms = list(dict.fromkeys(
+        [str(term) for term in _metadata_list(dashboard_semantics.get("kpi_terms"))]
+        + kpi_names
+    ))
+
     return {
         "title": title,
         "sections": sections,
         "widgets": widget_names,
         "kpi_names": kpi_names,
         "category": category,
-        "category_resolved": has_dashboard_evidence,
-        "category_evidence": [
-            signal
-            for signal in _CATEGORY_SIGNALS.get(category, ())
-            if signal in evidence
-        ],
-        "business_intent": taxonomy.get("business_intent", ""),
-        "decision_type": taxonomy.get("decision_type", ""),
-        "relevant_data_domain": taxonomy.get("relevant_data_domain", ""),
-        "supported_scenario_types": taxonomy.get("supported_scenario_types", []),
-        "allowed_kpi_groups": taxonomy.get("kpi_groups", []),
-        "allowed_kpi_terms": dashboard_kpi_terms,
-        "allowed_risk_groups": taxonomy.get("risk_groups", []),
-        "allowed_action_groups": taxonomy.get("action_groups", []),
-        "category_scores": category_scores,
+        "category_resolved": category_resolved,
+        "category_evidence": _metadata_list(
+            _metadata_value(metadata_layers, ("category_evidence",), [])
+        ),
+        "business_intent": _metadata_text(dashboard_semantics.get("business_intent")),
+        "decision_type": _metadata_text(dashboard_semantics.get("decision_type")),
+        "relevant_data_domain": _metadata_text(
+            dashboard_semantics.get("relevant_data_domain")
+        ),
+        "supported_scenario_types": _metadata_list(
+            dashboard_semantics.get("supported_scenario_types")
+        ),
+        "allowed_kpi_groups": _metadata_list(dashboard_semantics.get("kpi_groups")),
+        "allowed_kpi_terms": allowed_kpi_terms,
+        "allowed_risk_groups": _metadata_list(dashboard_semantics.get("risk_groups")),
+        "allowed_action_groups": _metadata_list(dashboard_semantics.get("action_groups")),
         "dashboard_semantics": dashboard_semantics,
     }
-
 
 def select_relevant_kpis(state: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -684,6 +322,8 @@ def select_relevant_kpis(state: Dict[str, Any]) -> Dict[str, Any]:
     Returns 1 Primary KPI and 2 Supporting KPIs.
     """
     dashboard_context = state.get("dashboard_context", {})
+    if not isinstance(dashboard_context, dict):
+        dashboard_context = {}
     logger.info(
     "[KPI DEBUG] widget_kpis=%s",
     state.get(
@@ -691,20 +331,15 @@ def select_relevant_kpis(state: Dict[str, Any]) -> Dict[str, Any]:
         []
     ),
 )
-    dashboard_semantics = (
-    state.get("dashboard_semantics")
-    or dashboard_context.get(
-        "dashboard_semantics",
-        {}
-    )
-)
+    dashboard_semantics = dashboard_context.get("dashboard_semantics")
+    if not isinstance(dashboard_semantics, dict):
+        dashboard_semantics = state.get("dashboard_semantics")
+    if not isinstance(dashboard_semantics, dict):
+        dashboard_semantics = {}
 
-    scenario_semantics = (
-    state.get("scenario_semantics")
-    or {}
-)
-    if not isinstance(dashboard_context, dict):
-        dashboard_context = {}
+    scenario_semantics = state.get("scenario_semantics")
+    if not isinstance(scenario_semantics, dict):
+        scenario_semantics = {}
     terms = dashboard_context.get("allowed_kpi_terms", [])
     if not isinstance(terms, list):
         terms = []
@@ -805,8 +440,6 @@ def select_relevant_kpis(state: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "dashboard_kpi_records": scored_candidates,
         "selected_dashboard_kpi_names": selected_names,
-        "allowed_kpi_terms": terms,
-        "strict_dashboard_filter": bool(dashboard_context.get("category_resolved")),
         "primary_kpi": primary_kpi,
         "supporting_kpis": supporting_kpis,
     }

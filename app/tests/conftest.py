@@ -1,6 +1,17 @@
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def configure_test_platform_url(monkeypatch):
+    from app.config.settings import settings
+
+    monkeypatch.setattr(
+        settings,
+        "PLATFORM_BACKEND_URL",
+        "https://platform.example.test",
+    )
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--run-integration",

@@ -705,9 +705,9 @@ def _root_cause_matches(item: Dict[str, Any], anchors: Set[str]) -> bool:
 def _dashboard_context(state: Dict[str, Any]) -> Dict[str, Any]:
     context = state.get("dashboard_context")
     context = context if isinstance(context, dict) else {}
-    semantics = state.get("dashboard_semantics")
+    semantics = context.get("dashboard_semantics")
     if not isinstance(semantics, dict):
-        semantics = context.get("dashboard_semantics")
+        semantics = state.get("dashboard_semantics")
     semantics = semantics if isinstance(semantics, dict) else {}
 
     return {

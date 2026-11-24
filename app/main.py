@@ -31,6 +31,7 @@ from fastapi import FastAPI
 import uvicorn
 
 from app.api.routes import router
+from app.config.settings import settings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,6 +48,7 @@ PRIMARY_LLM_PROVIDER = "GROQ"
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
+    settings.validate_startup()
     logger.info("Primary LLM Provider: %s", PRIMARY_LLM_PROVIDER)
     yield
 

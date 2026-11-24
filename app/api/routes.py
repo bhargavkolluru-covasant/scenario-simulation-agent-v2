@@ -184,11 +184,12 @@ async def run_simulation(
             "include_full_state": include_full_state,
 
             # Context
-            "enterprise_id": enterprise_id,
-            "domain_ids": domain_ids,
-            "scope_id": scope_id,
+            "context": {
+                "enterprise_id": enterprise_id,
+                "domain_ids": domain_ids,
+                "scope_id": scope_id,
+            },
             "access_token": access_token,
-            "context": {},
 
             # Tracking
             "status": "STARTING",
@@ -206,15 +207,9 @@ async def run_simulation(
             "dashboard_definition": {},
             "dashboard_rows": [],
             "dashboard_context": {},
-            "dashboard_category": "",
-            "allowed_kpi_groups": [],
-            "allowed_risk_groups": [],
-            "allowed_action_groups": [],
-            "allowed_kpi_terms": [],
             "selected_dashboard_kpi_names": [],
             "dashboard_kpi_records": [],
             "causal_support_kpis": [],
-            "strict_dashboard_filter": False,
             "matched_dashboard_records": [],
             "entity_match_summary": {},
             "kpi_insights": {},
@@ -292,6 +287,31 @@ async def run_simulation(
             response_state = _sanitize_error_details(dict(result_state))
             if response_state.get("access_token"):
                 response_state["access_token"] = "******"
+            simulation_result = response_state.get("simulation_result")
+            metrics = (
+                simulation_result.get("metrics")
+                if isinstance(simulation_result, dict)
+                else None
+            )
+            financial_model = (
+                metrics.get("financial_model")
+                if isinstance(metrics, dict)
+                else None
+            )
+            scenario_exposure = (
+                financial_model.get("scenario_exposure")
+                if isinstance(financial_model, dict)
+                else None
+            )
+            if not isinstance(scenario_exposure, dict):
+                scenario_exposure = {}
+            response_state["baseline_selection"] = {
+                "primary_baseline": scenario_exposure.get("primary_baseline"),
+                "alternative_baselines": scenario_exposure.get(
+                    "alternative_baselines",
+                    [],
+                ),
+            }
             response["state"] = response_state
 
         logger.info(

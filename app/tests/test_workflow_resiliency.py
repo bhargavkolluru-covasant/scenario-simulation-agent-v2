@@ -84,8 +84,10 @@ async def test_dashboard_failure_marks_workflow_failed_and_stops(monkeypatch):
             query="Run the scenario",
             dashboard_id="dashboard-test",
             access_token="test-token",
-            enterprise_id="enterprise-test",
-            domain_ids=["domain-test"],
+            context={
+                "enterprise_id": "enterprise-test",
+                "domain_ids": ["domain-test"],
+            },
         )
     )
 

@@ -178,7 +178,12 @@ def test_percent_change_estimates_only_matched_monetary_kpi_and_keeps_current_ex
     ],
 )
 @pytest.mark.asyncio
-async def test_simulation_uses_one_ranked_baseline_for_actual_and_forecast_kpis(name, scenario):
+async def test_simulation_uses_one_ranked_baseline_for_actual_and_forecast_kpis(
+    name,
+    scenario,
+    caplog,
+):
+    caplog.set_level("INFO", logger="app.services.financial_model_service")
     actual_name = f"{name} Actual"
     forecast_name = f"{name} Forecast"
     state = {
@@ -234,6 +239,7 @@ async def test_simulation_uses_one_ranked_baseline_for_actual_and_forecast_kpis(
     assert exposure["estimated_amount_by_currency"] == {"AED": 1_000_000}
     assert [item["kpi"] for item in exposure["amount_evidence"]] == [actual_name]
     assert simulation["metrics"]["scenario_incremental_financial_exposure"] == 1_000_000
+    assert f"Selected primary baseline:\n{actual_name}" in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -300,6 +306,46 @@ def test_baseline_selection_uses_semantic_dashboard_match_then_confidence_priori
     )
 
     assert result["scenario_exposure"]["primary_baseline"]["name"] == expected
+
+
+def test_alternative_baseline_does_not_contribute_to_impact_confidence_or_drivers():
+    result = FinancialModelService().model(
+        scenario="What if revenue actual and revenue forecast fall by 10%?",
+        dashboard_data={},
+        kpi_insights={"kpis": [
+            {
+                "kpi_name": "Revenue Actual",
+                "kpi_value": 10_000_000,
+                "kpi_unit": "AED",
+                "confidence_score": 0.1,
+                "_scoring": {
+                    "semantic_relevance": 0.8,
+                    "dashboard_relevance": 0.6,
+                    "match_score": 0.5,
+                },
+            },
+            {
+                "kpi_name": "Revenue Forecast",
+                "kpi_value": 8_000_000,
+                "kpi_unit": "AED",
+                "confidence_score": 1.0,
+                "_scoring": {
+                    "semantic_relevance": 0.8,
+                    "dashboard_relevance": 0.5,
+                    "match_score": 0.5,
+                },
+            },
+        ]},
+        actions=[],
+        rules=[],
+    )
+    exposure = result["scenario_exposure"]
+
+    assert exposure["primary_baseline"]["name"] == "Revenue Actual"
+    assert exposure["confidence"] == 0.1
+    assert [driver["kpi"] for driver in exposure["impact_drivers"]] == [
+        "Revenue Actual"
+    ]
 
 
 def test_current_financial_exposure_uses_generic_financial_risk_signals():

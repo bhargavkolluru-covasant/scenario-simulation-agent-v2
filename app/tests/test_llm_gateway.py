@@ -58,11 +58,17 @@ async def test_llm_gateway_does_not_fall_back_when_groq_fails(monkeypatch):
     assert calls == ["groq"]
 
 
-def test_health_and_startup_report_groq(caplog):
+def test_health_and_startup_report_groq(caplog, monkeypatch):
     from fastapi.testclient import TestClient
 
     from app.main import app
 
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "test-groq-key")
+    monkeypatch.setattr(
+        settings,
+        "PLATFORM_BACKEND_URL",
+        "https://platform.example.test",
+    )
     caplog.set_level(logging.INFO)
     with TestClient(app) as client:
         response = client.get("/health")

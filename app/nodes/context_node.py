@@ -1,5 +1,4 @@
 import logging
-from typing import Dict, Any
 
 from app.config.settings import settings
 from app.state.simulation_state import SimulationState
@@ -40,26 +39,38 @@ async def context_node(
     state["current_node"] = "context"
 
     try:
-
-        enterprise_id = state.get("enterprise_id") or settings.enterprise_id
-        domain_ids = state.get("domain_ids") or settings.domain_ids
-        scope_id = state.get("scope_id") or settings.scope_id or ""
+        context = state.get("context")
+        if not isinstance(context, dict):
+            context = {}
+        enterprise_id = (
+            context.get("enterprise_id")
+            or state.get("enterprise_id")
+            or settings.enterprise_id
+        )
+        domain_ids = (
+            context.get("domain_ids")
+            or state.get("domain_ids")
+            or settings.domain_ids
+        )
+        scope_id = (
+            context.get("scope_id")
+            or state.get("scope_id")
+            or settings.scope_id
+            or ""
+        )
 
         if not enterprise_id or not domain_ids:
             raise ContextInitializationError(
                 "ARIIA enterprise_id and domain_ids are required."
             )
 
-        context: Dict[str, Any] = {
+        state["context"] = {
             "enterprise_id": enterprise_id,
             "domain_ids": domain_ids,
             "scope_id": scope_id,
         }
-
-        state["enterprise_id"] = enterprise_id
-        state["domain_ids"] = domain_ids
-        state["scope_id"] = scope_id
-        state["context"] = context
+        for key in ("enterprise_id", "domain_ids", "scope_id"):
+            state.pop(key, None)
 
         logger.info(
             "[context_node] Context initialized for enterprise=%s domains=%s",

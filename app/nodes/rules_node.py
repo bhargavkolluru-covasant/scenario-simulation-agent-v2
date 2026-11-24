@@ -13,11 +13,12 @@ async def rules_node(state: SimulationState) -> SimulationState:
     """
     logger.info("[rules_node] Loading business rules")
     state["current_node"] = "rules"
+    context = state.get("context") or {}
     client = RulesClient(
         auth_token=state.get("access_token"),
-        enterprise_id=state.get("enterprise_id"),
-        domain_ids=state.get("domain_ids"),
-        scope_id=state.get("scope_id"),
+        enterprise_id=context.get("enterprise_id"),
+        domain_ids=context.get("domain_ids"),
+        scope_id=context.get("scope_id"),
     )
 
     try:

@@ -9,9 +9,6 @@ class SimulationState(TypedDict, total=False):
     query: str
     include_full_state: bool
     access_token: Optional[str]
-    enterprise_id: str
-    domain_ids: List[str]
-    scope_id: Optional[str]
     dashboard_id: str
     context: Dict[str, Any]
     scenario: Dict[str, Any]
@@ -22,30 +19,21 @@ class SimulationState(TypedDict, total=False):
     dashboard_definition: Dict[str, Any]
     dashboard_rows: List[Any]
     dashboard_context: Dict[str, Any]
-    dashboard_semantics: Dict[str, Any]
-    dashboard_category: str
-    allowed_kpi_groups: List[str]
-    allowed_risk_groups: List[str]
-    allowed_action_groups: List[str]
-    allowed_kpi_terms: List[str]
     selected_dashboard_kpi_names: List[str]
     dashboard_kpi_records: List[Dict[str, Any]]
     dashboard_widget_kpis: List[Dict[str, Any]]
     causal_support_kpis: List[Dict[str, Any]]
-    strict_dashboard_filter: bool
     matched_dashboard_records: List[Any]
     entity_match_summary: Dict[str, Any]
     kpi_insights: Dict[str, Any]
     primary_kpi: Dict[str, Any]
     supporting_kpis: List[Dict[str, Any]]
-    risk_context: Dict[str, Any]
     primary_risk: Dict[str, Any]
     secondary_risk: Optional[Dict[str, Any]]
     actions: List[Dict[str, Any]]
     action_stats: Dict[str, Any]
     selected_actions: List[Dict[str, Any]]
     available_actions: List[Dict[str, Any]]
-    investment_prioritization: List[Dict[str, Any]]
     financial_reasoning: Dict[str, Any]
     investment_prioritization: List[Dict[str, Any]]
     semantic_entities: List[Dict[str, Any]]

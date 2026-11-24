@@ -52,29 +52,16 @@ async def dashboard_context_resolver_node(
 )
 
     state["dashboard_context"] = dashboard_context
-
-    state["dashboard_category"] = (
-        dashboard_context["category"]
-    )
-
-    state["dashboard_semantics"] = (
-        dashboard_context.get(
-            "dashboard_semantics",
-            {},
-        )
-    )
-
-    state["allowed_kpi_groups"] = (
-        dashboard_context["allowed_kpi_groups"]
-    )
-
-    state["allowed_risk_groups"] = (
-        dashboard_context["allowed_risk_groups"]
-    )
-
-    state["allowed_action_groups"] = (
-        dashboard_context["allowed_action_groups"]
-    )
+    for key in (
+        "dashboard_category",
+        "dashboard_semantics",
+        "allowed_kpi_groups",
+        "allowed_risk_groups",
+        "allowed_action_groups",
+        "allowed_kpi_terms",
+        "strict_dashboard_filter",
+    ):
+        state.pop(key, None)
 
     logger.info(
         "[dashboard_context_resolver_node] category=%s domain=%s themes=%s",

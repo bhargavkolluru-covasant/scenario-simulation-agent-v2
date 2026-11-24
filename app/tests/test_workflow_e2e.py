@@ -27,6 +27,9 @@ async def test_context_node_uses_enterprise_and_domain_without_scope():
         "domain_ids": ["domain-test"],
         "scope_id": settings.scope_id or "",
     }
+    assert "enterprise_id" not in result
+    assert "domain_ids" not in result
+    assert "scope_id" not in result
 
 
 @pytest.mark.asyncio
@@ -192,9 +195,11 @@ async def test_full_simulation_workflow(monkeypatch):
 
     initial_state = {
         "query": "Simulate a construction delay for Acme Project",
-        "scope_id": "test-scope",
-        "enterprise_id": "enterprise-test",
-        "domain_ids": ["domain-test"],
+        "context": {
+            "scope_id": "test-scope",
+            "enterprise_id": "enterprise-test",
+            "domain_ids": ["domain-test"],
+        },
         "access_token": "workflow-test-token",
         "dashboard_id": "test-dashboard",
         "semantic_entities": [],

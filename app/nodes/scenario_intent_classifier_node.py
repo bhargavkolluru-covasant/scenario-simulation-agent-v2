@@ -50,23 +50,20 @@ async def scenario_intent_classifier_node(
     scenario_context = (
         intent_service.classify(state)
     )
+    scenario_semantics = scenario_context.pop(
+        "scenario_semantics",
+        {},
+    )
     logger.info(
     "[DEBUG] scenario_semantics=%s",
-    scenario_context.get(
-        "scenario_semantics"
-    ),
+    scenario_semantics,
 )
 
     state["scenario_context"] = (
         scenario_context
     )
 
-    state["scenario_semantics"] = (
-        scenario_context.get(
-            "scenario_semantics",
-            {},
-        )
-    )
+    state["scenario_semantics"] = scenario_semantics
 
     if (
         scenario_context.get(
@@ -88,11 +85,10 @@ async def scenario_intent_classifier_node(
         scenario_context.get(
             "scenario_category"
         ),
-        scenario_context.get(
-            "scenario_semantics",
-            {}
-        ).get(
-            "themes"
+        (
+            scenario_semantics.get("themes")
+            if isinstance(scenario_semantics, dict)
+            else None
         ),
     )
 

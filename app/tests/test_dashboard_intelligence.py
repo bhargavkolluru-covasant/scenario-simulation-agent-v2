@@ -14,9 +14,7 @@ from app.clients.dashboard_client import DashboardClient
 from app.services.entity_matching_service import EntityMatchingService
 from app.services.impact_analysis_service import ImpactAnalysisService
 from app.services.report_service import ReportService
-from app.services.dashboard_intelligence_service import (
-    DASHBOARD_TAXONOMY,
-)
+from app.services.dashboard_intelligence_service import resolve_dashboard_context
 from app.services.simulation_service import SimulationService
 from app.clients.kpi_insights_client import KPIInsightsClient
 from unittest.mock import AsyncMock
@@ -68,6 +66,14 @@ async def test_dashboard_context_and_kpi_selector_resolve_land_feasibility():
         "scenario": {"change_type": "investment capital reduction"},
         "dashboard_definition": {
             "title": "Land Feasibility Dashboard",
+            "semantic_metadata": {
+                "category": "LAND_FEASIBILITY",
+                "business_domain": "Property Investment",
+                "themes": ["investment_feasibility"],
+                "kpi_groups": ["development metrics"],
+                "kpi_terms": ["weighted score", "irr"],
+                "kpis": [{"name": "Development Cost"}],
+            },
             "sections": [{"title": "Development Options"}],
             "widgets": [
                 {"title": "HBU Options"},
@@ -124,14 +130,111 @@ async def test_dashboard_context_and_kpi_selector_resolve_land_feasibility():
     await dashboard_context_resolver_node(state)
     await relevant_kpi_selector_node(state)
 
-    assert state["dashboard_category"] == "LAND_FEASIBILITY"
+    assert state["dashboard_context"]["category"] == "LAND_FEASIBILITY"
     assert state["dashboard_context"]["category_resolved"] is True
-    assert state["allowed_kpi_groups"] == DASHBOARD_TAXONOMY["LAND_FEASIBILITY"]["kpi_groups"]
+    assert state["dashboard_context"]["allowed_kpi_groups"] == ["development metrics"]
+    assert "dashboard_category" not in state
+    assert "dashboard_semantics" not in state
+    assert "allowed_kpi_groups" not in state
+    assert "allowed_kpi_terms" not in state
     assert "Blacklisted Vendors" not in state["selected_dashboard_kpi_names"]
     assert {"hbu options", "weighted score", "irr"} <= {
         name.casefold() for name in state["selected_dashboard_kpi_names"]
     }
-    assert state["strict_dashboard_filter"] is True
+    assert "strict_dashboard_filter" not in state
+
+
+@pytest.mark.parametrize(
+    ("title", "category", "business_domain", "kpi_name"),
+    [
+        ("Retail Store Performance", "RETAIL", "Retail Operations", "Conversion Rate"),
+        ("Logistics Network", "LOGISTICS", "Supply Chain", "On-Time Delivery"),
+        ("Finance Overview", "FINANCE", "Finance", "Cash Flow"),
+    ],
+)
+def test_dashboard_context_uses_declared_metadata(
+    title,
+    category,
+    business_domain,
+    kpi_name,
+):
+    context = resolve_dashboard_context({
+        "dashboard_definition": {
+            "title": title,
+            "description": f"{business_domain} performance dashboard",
+            "metadata": {
+                "dashboard_category": category,
+                "semantic_metadata": {
+                    "business_domain": business_domain,
+                    "themes": ["operational_performance"],
+                    "kpi_groups": ["performance measures"],
+                    "kpi_definitions": [{"name": kpi_name}],
+                    "risk_groups": ["service risk"],
+                    "action_groups": ["process improvement"],
+                },
+            },
+        },
+        "dashboard_data": {},
+    })
+
+    assert context["category"] == category
+    assert context["category_resolved"] is True
+    assert context["business_intent"] == ""
+    assert context["allowed_kpi_groups"] == ["performance measures"]
+    assert context["allowed_risk_groups"] == ["service risk"]
+    assert context["allowed_action_groups"] == ["process improvement"]
+    assert kpi_name in context["kpi_names"]
+    assert context["dashboard_semantics"]["themes"] == ["operational_performance"]
+    assert context["dashboard_semantics"]["dashboard_description"] == (
+        f"{business_domain} performance dashboard"
+    )
+
+
+def test_dashboard_context_does_not_infer_category_from_real_estate_terms():
+    context = resolve_dashboard_context({
+        "dashboard_definition": {
+            "title": "GDV, HBU, Hurdle Rate and Handover",
+            "description": "A construction and project delivery dashboard",
+        },
+        "dashboard_data": {},
+    })
+
+    assert context["category"] == "UNCLASSIFIED"
+    assert context["category_resolved"] is False
+    assert context["allowed_kpi_groups"] == []
+    assert context["dashboard_semantics"]["themes"] == []
+
+
+def test_arbitrary_dashboard_metadata_is_preserved_without_taxonomy():
+    context = resolve_dashboard_context({
+        "dashboard_definition": {
+            "name": "Meridian Prime",
+            "semantic_metadata": {
+                "category": "PORTFOLIO_PERFORMANCE",
+                "business_domain": "Portfolio Operations",
+                "themes": ["portfolio_health"],
+                "kpi_groups": ["portfolio measures"],
+                "kpi_definitions": [{"name": "Portfolio Yield"}],
+            },
+        },
+        "dashboard_data": {},
+    })
+
+    assert context["category"] == "PORTFOLIO_PERFORMANCE"
+    assert context["dashboard_semantics"]["business_domain"] == "Portfolio Operations"
+    assert context["allowed_kpi_groups"] == ["portfolio measures"]
+    assert "Portfolio Yield" in context["kpi_names"]
+
+
+def test_existing_dashboard_context_category_remains_authoritative():
+    context = resolve_dashboard_context({
+        "dashboard_context": {"category": "CUSTOM_DOMAIN"},
+        "dashboard_definition": {"title": "Unclassified by title"},
+        "dashboard_data": {},
+    })
+
+    assert context["category"] == "CUSTOM_DOMAIN"
+    assert context["category_resolved"] is True
 
 
 def test_entity_matching_searches_nested_values_case_insensitively():
@@ -255,9 +358,11 @@ async def test_kpi_node_filters_enterprise_metrics_to_resolved_dashboard(monkeyp
         lambda self: _async_value({"total_kpis": 4}),
     )
     state = {
-        "dashboard_category": "LAND_FEASIBILITY",
-        "strict_dashboard_filter": True,
-        "allowed_kpi_terms": DASHBOARD_TAXONOMY["LAND_FEASIBILITY"]["kpi_terms"],
+        "dashboard_context": {
+            "category": "LAND_FEASIBILITY",
+            "category_resolved": True,
+            "allowed_kpi_terms": ["IRR", "Weighted Score", "Development Cost"],
+        },
         "selected_dashboard_kpi_names": ["IRR", "Weighted Score"],
         "dashboard_kpi_records": [{
             "name": "Development Cost",
@@ -1131,10 +1236,10 @@ async def test_report_does_not_rebuild_land_feasibility_decisions():
         "dashboard_context": {
             "category": "LAND_FEASIBILITY",
             "category_resolved": True,
-            "allowed_kpi_terms": DASHBOARD_TAXONOMY["LAND_FEASIBILITY"]["kpi_terms"],
+            "allowed_kpi_terms": ["Weighted Score", "IRR", "GDV", "Development Cost"],
             "kpi_names": ["Weighted Score", "IRR", "GDV", "Development Cost"],
         },
-        "allowed_kpi_terms": DASHBOARD_TAXONOMY["LAND_FEASIBILITY"]["kpi_terms"],
+        "allowed_kpi_terms": ["Weighted Score", "IRR", "GDV", "Development Cost"],
         "selected_dashboard_kpi_names": [
             "Weighted Score", "IRR", "GDV", "Development Cost", "Hurdle Rate",
         ],

@@ -1,28 +1,28 @@
-import json
 import logging
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from app.services.llm_gateway import LLMGateway
+from app.services.scenario_intent_service import get_scenario_capability_mapping
 from app.state.simulation_state import SimulationState
 
 logger = logging.getLogger(__name__)
 
 
 class SimulationStrategy(str, Enum):
-    """
-    Simulation execution strategies supported by the ARIIA agent.
-    Domain-aware strategies mapped to executive scenario types.
-    """
+    """Strategies selected through explicit scenario capabilities."""
     PORTFOLIO_OPTIMIZATION = "PORTFOLIO_OPTIMIZATION"
     PROJECT_DELIVERY_SIMULATION = "PROJECT_DELIVERY_SIMULATION"
     CUSTOMER_EXPERIENCE_SIMULATION = "CUSTOMER_EXPERIENCE_SIMULATION"
     SUPPLY_CHAIN = "SUPPLY_CHAIN"
     FINANCIAL_IMPACT = "FINANCIAL_IMPACT"
     MARKET_RISK = "MARKET_RISK"
+    DEMAND_GROWTH = "DEMAND_GROWTH"
+    CAPACITY_PLANNING = "CAPACITY_PLANNING"
     RULE_BASED = "RULE_BASED"
     HYBRID = "HYBRID"
+    UNCLASSIFIED = "UNCLASSIFIED"
 
 
 class StrategyDecision(BaseModel):
@@ -30,149 +30,127 @@ class StrategyDecision(BaseModel):
     rationale: Optional[str] = Field(default="", description="Reasoning for selecting this simulation strategy")
 
 
+def _as_strategy(value: Any) -> SimulationStrategy:
+    if isinstance(value, dict):
+        value = value.get("strategy") or value.get("simulation_strategy")
+    if isinstance(value, SimulationStrategy):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return SimulationStrategy.UNCLASSIFIED
+    try:
+        return SimulationStrategy(value.strip().upper().replace(" ", "_"))
+    except ValueError:
+        return SimulationStrategy.UNCLASSIFIED
+
+
+def _scenario_type(scenario: Dict[str, Any], scenario_context: Dict[str, Any]) -> str:
+    return str(
+        scenario.get("scenario_type")
+        or scenario_context.get("scenario_type")
+        or ""
+    )
+
+
+def _mapping_methodology(mapping: Any) -> List[str]:
+    if not isinstance(mapping, dict):
+        return []
+    methodology = mapping.get("methodology")
+    if isinstance(methodology, str):
+        return [methodology] if methodology else []
+    if isinstance(methodology, (list, tuple)):
+        return [str(item) for item in methodology if item not in (None, "")]
+    return []
+
+
 def determine_strategy(
     scenario: Dict[str, Any],
-    dashboard_category: str = "",
-    scenario_category: str = "",
-    is_capital_allocation: bool = False,
-    query: str = "",
+    scenario_context: Optional[Dict[str, Any]] = None,
+    dashboard_context: Optional[Dict[str, Any]] = None,
+    scenario_semantics: Optional[Dict[str, Any]] = None,
 ) -> SimulationStrategy:
-    """
-    Deterministic domain-aware strategy selection based on dashboard context and scenario intent.
-    Node 6: Simulation Strategy Selector.
-    """
-    combined_text = " ".join([
-        query,
-        str(scenario.get("description") or ""),
-        str(scenario.get("change_type") or ""),
-        str(scenario.get("scenario_type") or ""),
-        str(scenario.get("domain") or ""),
-    ]).casefold()
+    """Resolve an explicit strategy or an exact scenario capability mapping."""
+    scenario = scenario if isinstance(scenario, dict) else {}
+    scenario_context = scenario_context if isinstance(scenario_context, dict) else {}
+    scenario_semantics = scenario_semantics if isinstance(scenario_semantics, dict) else {}
 
-    dashboard_category = str(dashboard_category or "").upper()
-    scenario_category = str(scenario_category or "").upper()
+    for source in (scenario_context, scenario_semantics, scenario):
+        for key in ("simulation_strategy", "strategy", "strategy_type"):
+            if source.get(key) not in (None, ""):
+                strategy = _as_strategy(source[key])
+                if strategy != SimulationStrategy.UNCLASSIFIED:
+                    return strategy
 
-    # 1. Capital Allocation & Portfolio Prioritization
-    if (
-        is_capital_allocation
-        or scenario_category in {"CAPITAL_ALLOCATION", "PORTFOLIO_OPTIMIZATION", "INVESTMENT_VIABILITY"}
-        or dashboard_category in {"LAND_FEASIBILITY", "PORTFOLIO"}
-        or any(k in combined_text for k in ("capital", "priorit", "hbu", "hurdle", "irr", "allocation"))
-    ):
-        return SimulationStrategy.PORTFOLIO_OPTIMIZATION
-
-    # 2. Project Delay & Critical Path Delivery
-    if (
-        dashboard_category == "PROJECT_DELIVERY"
-        or scenario_category == "PROJECT_DELIVERY"
-        or any(k in combined_text for k in ("delay", "handover", "schedule", "milestone", "critical path", "slippage"))
-    ):
-        return SimulationStrategy.PROJECT_DELIVERY_SIMULATION
-
-    # 3. Customer Experience & Retention
-    if (
-        dashboard_category == "CUSTOMER"
-        or scenario_category == "CUSTOMER_SATISFACTION"
-        or any(k in combined_text for k in ("csat", "nps", "churn", "retention", "customer satisfaction"))
-    ):
-        return SimulationStrategy.CUSTOMER_EXPERIENCE_SIMULATION
-
-    # 4. Supply Chain / Vendor Failure
-    if (
-        dashboard_category == "PROCUREMENT"
-        or any(k in combined_text for k in ("vendor", "supplier", "sourcing", "purchase order"))
-    ):
-        return SimulationStrategy.SUPPLY_CHAIN
-
-    # 5. Financial & Liquidity
-    if (
-        dashboard_category in {"FINANCE", "SALES"}
-        or any(k in combined_text for k in ("cash flow", "liquidity", "margin", "invoice", "revenue"))
-    ):
-        return SimulationStrategy.FINANCIAL_IMPACT
-
-    # 6. Compliance & Governance
-    if (
-        dashboard_category == "COMPLIANCE"
-        or any(k in combined_text for k in ("audit", "compliance", "regulatory", "violation"))
-    ):
-        return SimulationStrategy.RULE_BASED
-
-    return SimulationStrategy.HYBRID
+    scenario_type = _scenario_type(scenario, scenario_context)
+    mapping = get_scenario_capability_mapping(
+        scenario_context,
+        "scenario_strategy_map",
+        scenario_type,
+    )
+    if mapping is None:
+        mapping = get_scenario_capability_mapping(
+            dashboard_context,
+            "scenario_strategy_map",
+            scenario_type,
+        )
+    return _as_strategy(mapping)
 
 
 async def strategy_selector_node(
     state: SimulationState,
     llm_service: Optional[LLMGateway] = None,
 ) -> SimulationState:
-    """
-    Node 6: Simulation Strategy Selector
-    Assigns domain-aware simulation execution strategy based on:
-    Dashboard Context + Scenario Intent. Populates state['strategy'] and state['simulation_strategy_context'].
-    """
+    """Select a strategy from parsed scenario and declared dashboard capabilities."""
+    del llm_service
     logger.info("[strategy_selector_node] Selecting simulation execution strategy")
     state["current_node"] = "strategy_selector"
 
-    try:
-        scenario = state.get("scenario", {})
-        query = str(state.get("query") or "")
-        dashboard_category = str(
-            (state.get("dashboard_context") or {}).get("category")
-            or state.get("dashboard_category")
-            or ""
+    scenario = state.get("scenario")
+    if not isinstance(scenario, dict):
+        scenario = {}
+    scenario_context = state.get("scenario_context")
+    if not isinstance(scenario_context, dict):
+        scenario_context = {}
+    dashboard_context = state.get("dashboard_context")
+    if not isinstance(dashboard_context, dict):
+        dashboard_context = {}
+    scenario_semantics = state.get("scenario_semantics")
+    if not isinstance(scenario_semantics, dict):
+        scenario_semantics = {}
+
+    scenario_type = _scenario_type(scenario, scenario_context)
+    mapping = get_scenario_capability_mapping(
+        scenario_context,
+        "scenario_strategy_map",
+        scenario_type,
+    )
+    if mapping is None:
+        mapping = get_scenario_capability_mapping(
+            dashboard_context,
+            "scenario_strategy_map",
+            scenario_type,
         )
-        scenario_context = state.get("scenario_context") or {}
-        scenario_category = str(scenario_context.get("scenario_category") or "")
-        is_capital_allocation = bool(scenario_context.get("is_capital_allocation", False))
+    strategy = determine_strategy(
+        scenario=scenario,
+        scenario_context=scenario_context,
+        dashboard_context=dashboard_context,
+        scenario_semantics=scenario_semantics,
+    )
+    dashboard_category = str(dashboard_context.get("category") or "")
+    scenario_category = str(scenario_context.get("scenario_category") or "")
+    methodology = _mapping_methodology(mapping)
 
-        strategy = determine_strategy(
-            scenario=scenario,
-            dashboard_category=dashboard_category,
-            scenario_category=scenario_category,
-            is_capital_allocation=is_capital_allocation,
-            query=query,
-        )
-
-        methodology_map = {
-            SimulationStrategy.PORTFOLIO_OPTIMIZATION: [
-                "Ranking", "Optimization", "Portfolio Prioritization", "Hurdle Rate Compliance",
-            ],
-            SimulationStrategy.PROJECT_DELIVERY_SIMULATION: [
-                "Critical Path Impact", "Schedule Risk", "Delivery Simulation", "Contractor Dependency",
-            ],
-            SimulationStrategy.CUSTOMER_EXPERIENCE_SIMULATION: [
-                "Customer Retention", "Revenue Pressure", "Customer Risk", "Churn Sensitivity",
-            ],
-            SimulationStrategy.FINANCIAL_IMPACT: [
-                "Cash Flow Timing", "Working Capital Drag", "Margin Stress",
-            ],
-            SimulationStrategy.SUPPLY_CHAIN: [
-                "Supplier Dependency", "Material Lead Time", "Procurement Alternate Sourcing",
-            ],
-            SimulationStrategy.RULE_BASED: [
-                "Regulatory Policy Validation", "Control Enforcement",
-            ],
-            SimulationStrategy.HYBRID: [
-                "Cross-Domain Multi-Variable Simulation",
-            ],
-        }
-
-        state["simulation_strategy"] = strategy.value
-        state["simulation_strategy_context"] = {
-            "strategy": strategy.value,
-            "methodology": methodology_map.get(strategy, ["Standard Simulation"]),
-            "dashboard_category": dashboard_category,
-            "scenario_category": scenario_category,
-        }
-
-        logger.info(
-            f"[strategy_selector_node] Strategy assigned: '{strategy.value}' "
-            f"(Methodology: {state['simulation_strategy_context']['methodology']})"
-        )
-    except Exception as exc:
-        logger.error(f"[strategy_selector_node] Error evaluating strategy: {exc}", exc_info=True)
-        state["simulation_strategy"] = SimulationStrategy.PORTFOLIO_OPTIMIZATION.value
-
+    state["simulation_strategy"] = strategy.value
+    state["simulation_strategy_context"] = {
+        "strategy": strategy.value,
+        "methodology": methodology,
+        "dashboard_category": dashboard_category,
+        "scenario_category": scenario_category,
+        "scenario_type": scenario_type or "UNCLASSIFIED",
+    }
+    logger.info(
+        "[strategy_selector_node] Strategy assigned: '%s'",
+        strategy.value,
+    )
     return state
 
 

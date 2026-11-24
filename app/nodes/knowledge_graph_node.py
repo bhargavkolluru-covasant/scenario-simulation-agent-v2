@@ -35,11 +35,12 @@ async def knowledge_graph_node(state: SimulationState) -> SimulationState:
     """
     logger.info("[knowledge_graph_node] Querying Knowledge Graph")
     state["current_node"] = "knowledge_graph"
+    context = state.get("context") or {}
     client = KnowledgeGraphClient(
         auth_token=state.get("access_token"),
-        enterprise_id=state.get("enterprise_id"),
-        domain_ids=state.get("domain_ids"),
-        scope_id=state.get("scope_id"),
+        enterprise_id=context.get("enterprise_id"),
+        domain_ids=context.get("domain_ids"),
+        scope_id=context.get("scope_id"),
     )
 
     service = KnowledgeGraphService(client)

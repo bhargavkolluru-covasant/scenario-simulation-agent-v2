@@ -31,11 +31,13 @@ async def kpi_insights_node(state: SimulationState) -> SimulationState:
     """Load KPI metrics, reasoning, and confidence from ARIIA Platform, then filter and rank."""
     logger.info("[kpi_insights_node] Loading KPI insights")
     state["current_node"] = "kpi_insights"
+    context = state.get("context") or {}
+    dashboard_context = state.get("dashboard_context") or {}
     client = KPIInsightsClient(
         auth_token=state.get("access_token"),
-        enterprise_id=state.get("enterprise_id"),
-        domain_ids=state.get("domain_ids"),
-        scope_id=state.get("scope_id"),
+        enterprise_id=context.get("enterprise_id"),
+        domain_ids=context.get("domain_ids"),
+        scope_id=context.get("scope_id"),
     )
     payload, stats = await asyncio.gather(
         client.get_kpis(),
@@ -46,8 +48,8 @@ async def kpi_insights_node(state: SimulationState) -> SimulationState:
     if not isinstance(dashboard_records, list):
         dashboard_records = []
     causal_support = []
-    if state.get("strict_dashboard_filter"):
-        allowed_terms = state.get("allowed_kpi_terms", [])
+    if dashboard_context.get("category_resolved"):
+        allowed_terms = dashboard_context.get("allowed_kpi_terms", [])
         dashboard_names = state.get("selected_dashboard_kpi_names", [])
         if not isinstance(allowed_terms, list):
             allowed_terms = []

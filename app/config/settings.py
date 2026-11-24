@@ -1,9 +1,31 @@
-import os
+from math import isfinite
 from typing import Dict, Optional
+from urllib.parse import urlparse
 
 from pydantic_settings import (
     BaseSettings,
     SettingsConfigDict,
+)
+
+
+class ConfigurationError(RuntimeError):
+    """Raised when required application configuration is missing or invalid."""
+
+
+_URL_SETTING_NAMES = (
+    "PLATFORM_BACKEND_URL",
+    "DASHBOARD_URL",
+    "KPI_INSIGHTS_URL",
+    "ACTIONS_URL",
+    "SEMANTIC_REGISTRY_URL",
+    "KNOWLEDGE_GRAPH_URL",
+    "RULES_SERVICE_URL",
+    "RULE_COMPILATION_URL",
+    "VENDOR_SERVICE_URL",
+    "PROCUREMENT_SERVICE_URL",
+    "INVOICE_SERVICE_URL",
+    "EXPENSE_SERVICE_URL",
+    "MARKET_RISK_SERVICE_URL",
 )
 
 
@@ -20,13 +42,7 @@ class Settings(BaseSettings):
 
     API_TIMEOUT: float = 30.0
 
-    BASE_URL: str = (
-        "https://ariia-data-ingestion-service-trg-273497745552.us-central1.run.app/api/v1"
-    )
-
-    PLATFORM_BACKEND_URL: str = (
-        "https://ariia-platform-backend-trg-273497745552.us-central1.run.app"
-    )
+    PLATFORM_BACKEND_URL: Optional[str] = None
 
     # ==================================================
     # Dashboard / KPI Intelligence
@@ -46,12 +62,7 @@ class Settings(BaseSettings):
 
     ARIIA_ENTERPRISE_ID: Optional[str] = None
 
-    ARIIA_DOMAIN_IDS: str = (
-        "re_core_master,re_documents_conversation_intelligence,"
-        "re_finance_cost_performance,re_land_zoning_feasibility,"
-        "re_market_external_intelligence,re_portfolio_operations,"
-        "re_project_delivery_construction,re_sales_customer_channel"
-    )
+    ARIIA_DOMAIN_IDS: str = ""
 
     ARIIA_COOKIE: Optional[str] = None
 
@@ -105,55 +116,76 @@ class Settings(BaseSettings):
     # Properties
     # ==================================================
 
+    def validate_startup(self) -> None:
+        missing = []
+        if not self.GROQ_API_KEY or not self.GROQ_API_KEY.strip():
+            missing.append("GROQ_API_KEY")
+        if not self.PLATFORM_BACKEND_URL or not self.PLATFORM_BACKEND_URL.strip():
+            missing.append("PLATFORM_BACKEND_URL")
+
+        if missing:
+            names = ", ".join(missing)
+            raise ConfigurationError(
+                f"Missing required configuration: {names}. "
+                "Set these values in .env or the process environment."
+            )
+
+        invalid_urls = []
+        for name in _URL_SETTING_NAMES:
+            value = getattr(self, name)
+            if value and not self._is_http_url(value):
+                invalid_urls.append(name)
+
+        if invalid_urls:
+            names = ", ".join(invalid_urls)
+            raise ConfigurationError(
+                "Invalid configuration: "
+                f"{names} must be absolute HTTP(S) URLs."
+            )
+
+        if not isfinite(self.API_TIMEOUT) or self.API_TIMEOUT <= 0:
+            raise ConfigurationError(
+                "Invalid configuration: API_TIMEOUT must be a positive number."
+            )
+
+        if not self.GROQ_MODEL.strip():
+            raise ConfigurationError(
+                "Invalid configuration: GROQ_MODEL must not be empty."
+            )
+
+    @staticmethod
+    def _is_http_url(value: str) -> bool:
+        parsed = urlparse(value.strip())
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or any(character.isspace() for character in parsed.netloc)
+        ):
+            return False
+        try:
+            parsed.port
+        except ValueError:
+            return False
+        return True
+
     @property
     def access_token(self):
-
-        return (
-            self.ARIIA_ACCESS_TOKEN
-            or os.getenv(
-                "ARIIA_ACCESS_TOKEN"
-            )
-            or os.getenv(
-                "ariia_access_token"
-            )
-        )
+        return self.ARIIA_ACCESS_TOKEN
 
     @property
     def scope_id(self):
-
-        return (
-            self.ARIIA_SCOPE_ID
-            or os.getenv(
-                "ARIIA_SCOPE_ID"
-            )
-            or os.getenv(
-                "ariia_active_scope_id"
-            )
-        )
+        return self.ARIIA_SCOPE_ID
 
     @property
     def enterprise_id(self):
-
-        return (
-            self.ARIIA_ENTERPRISE_ID
-            or os.getenv(
-                "ARIIA_ENTERPRISE_ID"
-            )
-            or ""
-        )
+        return self.ARIIA_ENTERPRISE_ID or ""
 
     @property
     def domain_ids(self) -> list[str]:
         """Resolve the configured domain identifiers as a normalized list."""
-        configured_domain_ids = (
-            self.ARIIA_DOMAIN_IDS
-            or os.getenv("ARIIA_DOMAIN_IDS")
-            or os.getenv("ariia_domain_ids")
-            or ""
-        )
         domain_ids = [
             domain.strip()
-            for domain in configured_domain_ids.split(",")
+            for domain in self.ARIIA_DOMAIN_IDS.split(",")
             if domain.strip()
         ]
         return domain_ids
@@ -183,12 +215,12 @@ class Settings(BaseSettings):
         self,
         override: Optional[str] = None
     ) -> str:
-
-        return (
-            override
-            or self.PLATFORM_BACKEND_URL
-            or self.BASE_URL
-        ).rstrip("/")
+        service_url = override or self.PLATFORM_BACKEND_URL
+        if not service_url:
+            raise ConfigurationError(
+                "PLATFORM_BACKEND_URL is required to resolve service URLs."
+            )
+        return service_url.rstrip("/")
 
 
 settings = Settings()

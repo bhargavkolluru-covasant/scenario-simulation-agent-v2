@@ -16,31 +16,14 @@ async def semantic_reasoning_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     service = SemanticReasoningService()
 
+    dashboard_context = state.get("dashboard_context")
+    dashboard_context = dashboard_context if isinstance(dashboard_context, dict) else {}
     dashboard_semantics = (
-        state.get("dashboard_semantics")
-        or (
-            state.get(
-                "dashboard_context",
-                {},
-            ).get(
-                "dashboard_semantics",
-                {},
-            )
-        )
+        dashboard_context.get("dashboard_semantics")
+        or state.get("dashboard_semantics")
+        or {}
     )
-
-    scenario_semantics = (
-        state.get("scenario_semantics")
-        or (
-            state.get(
-                "scenario_context",
-                {},
-            ).get(
-                "scenario_semantics",
-                {},
-            )
-        )
-    )
+    scenario_semantics = state.get("scenario_semantics") or {}
 
     kpi_insights = state.get("kpi_insights") or {}
     insight_kpis = (
