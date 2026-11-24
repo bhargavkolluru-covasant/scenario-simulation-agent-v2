@@ -278,10 +278,13 @@ async def test_report_resolves_project_and_aging_data_from_nested_widgets():
     assert "4" in markdown
     assert "90+ day bucket contains 11" in markdown
     assert "A 90-day delay to Horizon Heights" in report["executive_summary"]
-    assert "most important indicator" in report["executive_summary"]
-    assert "greatest business risk" in report["executive_summary"]
-    assert "Leadership should prioritize" in report["executive_summary"]
-    assert 80 <= len(report["executive_summary"].split()) <= 120
+    summary = report["executive_summary"]
+    assert "Business Situation:" in summary
+    assert "Business Impact:" in summary
+    assert "Primary Risk:" in summary
+    assert "Leadership Action:" in summary
+    assert len(summary.split("\n\n")) <= 3
+    assert len(summary.split()) <= 120
     assert len(report["executive_conclusion"].split(". ")) == 3
     assert "selected KPI" not in markdown.casefold()
     assert "decision signal" not in markdown.casefold()

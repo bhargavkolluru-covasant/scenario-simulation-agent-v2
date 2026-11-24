@@ -9,6 +9,7 @@ from app.services.causal_reasoning_service import (
 from app.services.impact_analysis_service import ImpactAnalysisService
 from app.services.report_service import ReportService
 from app.services.root_cause_analysis_service import RootCauseAnalysisService
+from app.services.financial_reasoning_service import FinancialReasoningService
 
 
 def test_root_cause_uses_generic_dashboard_and_control_evidence_without_kpis():
@@ -31,7 +32,7 @@ def test_root_cause_uses_generic_dashboard_and_control_evidence_without_kpis():
     )
 
     assert findings
-    assert findings[0]["root_cause"] == "Risk control or resilience weakness"
+    assert "Data Integrity Rate" in findings[0]["root_cause"]
     assert len(findings[0]["evidence"]) <= 3
     assert any("Dashboard:" in item for item in findings[0]["evidence"])
     assert any("Context:" in item or "Scenario:" in item for item in findings[0]["evidence"])
@@ -51,7 +52,7 @@ def test_scenario_only_root_cause_is_cautious_and_domain_agnostic():
     )
 
     assert len(findings) == 1
-    assert findings[0]["root_cause"] == "Service-quality or issue-resolution shortfall"
+    assert findings[0]["root_cause"] == "Insufficient evidence to infer a likely driver"
     assert all(finding["evidence"] for finding in findings)
     assert all(len(finding["evidence"]) <= 3 for finding in findings)
     assert all(len(evidence) <= 180 for finding in findings for evidence in finding["evidence"])
@@ -65,10 +66,10 @@ def test_kpi_confidence_and_dashboard_evidence_strengthen_root_cause():
     findings = RootCauseAnalysisService().analyze(
         scenario={"query": "Assess project budget overrun."},
         dashboard_data={"projects": [{"name": "Tower A", "cost_overrun": "AED 2M"}]},
-        matched_dashboard_records=[{"construction_variance": "AED 2M"}],
+        matched_dashboard_records=[{"operating_variance": "AED 2M"}],
         kpi_insights={
             "kpis": [{
-                "kpi_name": "Construction Cost Variance",
+                "kpi_name": "Operating Cost Variance",
                 "kpi_value": "AED 2M",
                 "reasoning": "Actual committed cost is above the approved budget.",
                 "confidence_score": 0.94,
@@ -85,7 +86,7 @@ def test_kpi_confidence_and_dashboard_evidence_strengthen_root_cause():
 
     assert findings
     assert findings[0]["confidence"] > 0.8
-    assert any("Construction Cost Variance" in item for item in findings[0]["evidence"])
+    assert any("Operating Cost Variance" in item for item in findings[0]["evidence"])
     assert any("Rule:" in item for item in findings[0]["evidence"])
 
 
@@ -226,7 +227,7 @@ async def test_impact_report_and_explainability_use_root_causes_without_graph():
     report = await ReportService().generate_report(state)
 
     assert '"root_causes"' in llm.prompt
-    assert "Service-quality or issue-resolution shortfall" in llm.prompt
+    assert "Potential contributor affecting Customer Satisfaction requires validation" in llm.prompt
     assert "## Root Cause Analysis" in report["markdown_report"]
     assert "## Causal Impact Analysis" in report["markdown_report"]
     assert "Business impact path:" in report["markdown_report"]
@@ -265,9 +266,10 @@ async def test_root_cause_analysis_survives_knowledge_graph_unavailable():
     })
 
     assert impact["root_cause_analysis"]
-    assert impact["root_cause_analysis"][0]["root_cause"] == (
-        "Cost-control or margin pressure"
+    assert "Budget Overrun requires validation" in (
+        impact["root_cause_analysis"][0]["root_cause"]
     )
+    assert "construction" not in str(impact["root_cause_analysis"]).casefold()
     assert impact["causal_analysis"]["graph_available"] is False
 
 
@@ -300,43 +302,35 @@ def test_available_graph_relationships_support_causal_context_without_claiming_c
 
 
 @pytest.mark.parametrize(
-    ("kpi", "scenario", "expected_category"),
+    ("kpi", "scenario"),
     [
         (
             {"kpi_name": "Customer experience score", "reasoning": "Retention risk is rising.", "confidence_score": .9},
             "What if customer experience declines?",
-            "CUSTOMER_EXPERIENCE",
         ),
         (
             {"kpi_name": "Cash flow margin", "reasoning": "Liquidity is weakening.", "confidence_score": .9},
             "What if cash flow decreases?",
-            "FINANCIAL",
         ),
         (
             {"kpi_name": "Production throughput", "reasoning": "Output is below target.", "confidence_score": .9},
             "What if production throughput falls?",
-            "OPERATIONAL",
         ),
         (
             {"kpi_name": "Regulatory violations", "reasoning": "Control requirements are not met.", "confidence_score": .9},
             "What if regulatory violations rise?",
-            "COMPLIANCE",
         ),
         (
             {"kpi_name": "Business continuity exposure", "reasoning": "Continuity risk is increasing.", "confidence_score": .9},
             "What if business continuity exposure rises?",
-            "RISK",
         ),
         (
             {"kpi_name": "Strategic value realization", "reasoning": "Delivery milestones are at risk.", "confidence_score": .9},
             "What if strategic value realization declines?",
-            "STRATEGIC",
         ),
     ],
 )
-def test_causal_paths_are_category_based_and_domain_agnostic(
-    kpi, scenario, expected_category
-):
+def test_causal_paths_use_selected_evidence_without_category_templates(kpi, scenario):
     result = CausalReasoningService().analyze(
         scenario=scenario,
         dashboard_data={},
@@ -347,14 +341,9 @@ def test_causal_paths_are_category_based_and_domain_agnostic(
         impact_result={},
     )
 
-    assert result["primary_kpi_category"] == expected_category
-    assert result["causal_chain"][0] != kpi["kpi_name"]
-    assert len(result["causal_chain"]) >= 3
-    assert result["causal_chain"][-1] == "Enterprise Risk"
-    assert not any(
-        name == kpi["kpi_name"]
-        for name in result["causal_chain"]
-    )
+    assert result["scenario_category"] == "unclassified"
+    assert result["primary_kpi_category"] == "UNCLASSIFIED"
+    assert any(kpi["kpi_name"] in item for item in result["causal_chain"])
     assert result["primary_impact_path"] == " → ".join(result["causal_chain"])
 
 
@@ -392,13 +381,9 @@ def test_causal_path_uses_scenario_linked_kpis_and_modeled_impact_evidence():
         ]}}},
     )
 
-    assert result["scenario_category"] == "customer_experience"
-    assert result["causal_chain"] == [
-        "Customer Experience Deterioration",
-        "Customer Retention Risk",
-        "Revenue Risk",
-        "Enterprise Risk",
-    ]
+    assert result["scenario_category"] == "customer"
+    assert result["causal_chain"][1] == "Selected indicator: Customer Satisfaction"
+    assert "Evidence-based contributor:" in result["causal_chain"][2]
     assert result["causal_basis"][1]["relevance_rationale"]
 
 
@@ -437,21 +422,162 @@ def test_causal_analysis_uses_selected_kpi_instead_of_reranking_insights():
 
 
 @pytest.mark.parametrize(
-    ("scenario", "expected_category"),
+    "scenario",
     [
-        ({"domain": "Sales", "change_description": "conversion rate falls"}, "FINANCIAL"),
-        ({"domain": "Finance", "change_description": "cash availability weakens"}, "FINANCIAL"),
-        ({"domain": "Construction", "change_description": "delivery schedule slips"}, "OPERATIONAL"),
-        ({"domain": "Manufacturing", "change_description": "production output falls"}, "OPERATIONAL"),
-        ({"domain": "Procurement", "change_description": "supplier lead time increases"}, "OPERATIONAL"),
-        ({"domain": "Compliance", "change_description": "control breach risk rises"}, "COMPLIANCE"),
-        ({"domain": "Customer", "change_description": "satisfaction falls"}, "CUSTOMER_EXPERIENCE"),
+        {"domain": "Sales", "change_description": "conversion rate falls"},
+        {"domain": "Finance", "change_description": "cash availability weakens"},
+        {"domain": "Construction", "change_description": "delivery schedule slips"},
+        {"domain": "Manufacturing", "change_description": "production output falls"},
+        {"domain": "Procurement", "change_description": "supplier lead time increases"},
+        {"domain": "Compliance", "change_description": "control breach risk rises"},
+        {"domain": "Customer", "change_description": "satisfaction falls"},
     ],
 )
-def test_scenario_classification_uses_parsed_domain_and_change(
-    scenario, expected_category
+def test_scenario_classification_does_not_guess_from_domain_prose(scenario):
+    assert classify_scenario(scenario) == "UNCLASSIFIED"
+
+
+@pytest.mark.parametrize(
+    (
+        "dashboard_category",
+        "scenario_type",
+        "scenario_category",
+        "kpi_name",
+        "root_cause",
+        "risk_name",
+    ),
+    [
+        (
+            "RETAIL",
+            "population_growth",
+            "DEMAND_GROWTH",
+            "Inventory Turnover",
+            "Demand growth exceeding replenishment cycles",
+            "Stock availability risk",
+        ),
+        (
+            "LOGISTICS",
+            "shipment_increase",
+            "CAPACITY_PLANNING",
+            "On-Time Delivery",
+            "Fleet capacity constraints",
+            "Delivery service risk",
+        ),
+        (
+            "FINANCE",
+            "cash_flow_change",
+            "FINANCIAL_CHANGE",
+            "Cash Flow",
+            "Working capital pressure",
+            "Liquidity exposure",
+        ),
+    ],
+)
+def test_domain_reasoning_uses_dashboard_semantics_without_real_estate_defaults(
+    dashboard_category,
+    scenario_type,
+    scenario_category,
+    kpi_name,
+    root_cause,
+    risk_name,
 ):
-    assert classify_scenario(scenario) == expected_category
+    scenario = {
+        "scenario_type": scenario_type,
+        "target_entity": "Business Unit",
+        "change_type": "increase",
+        "description": f"{scenario_type.replace('_', ' ')} scenario",
+    }
+    primary_kpi = {
+        "name": kpi_name,
+        "value": 0.81,
+        "reasoning": f"{kpi_name} changed in the scenario.",
+        "confidence_score": 0.9,
+    }
+    dashboard_semantics = {
+        "category": dashboard_category,
+        "capabilities": {
+            "scenario_intent_map": {
+                scenario_type: {"scenario_category": scenario_category},
+            },
+        },
+        "kpi_definitions": [{
+            "name": kpi_name,
+            "meaning": f"Measures {kpi_name.casefold()} performance.",
+            "root_cause": root_cause,
+            "business_impact": f"{root_cause} may affect {kpi_name}.",
+            "mitigation": f"Validate and address {root_cause.casefold()}.",
+        }],
+    }
+    selected_risks = [{"name": risk_name, "severity": "MEDIUM"}]
+    dashboard_context = {
+        "category": dashboard_category,
+        "dashboard_semantics": dashboard_semantics,
+    }
+    state = {
+        "scenario": scenario,
+        "scenario_context": {"scenario_type": scenario_type},
+        "primary_kpi": primary_kpi,
+        "supporting_kpis": [],
+        "selected_risks": selected_risks,
+        "dashboard_context": dashboard_context,
+        "dashboard_semantics": dashboard_semantics,
+    }
+
+    causal = CausalReasoningService().analyze(
+        scenario=scenario,
+        dashboard_data={},
+        matched_dashboard_records=[],
+        kpi_insights={"kpis": [primary_kpi]},
+        actions=[],
+        rules=[],
+        impact_result={},
+        primary_kpi=primary_kpi,
+        selected_risks=selected_risks,
+        scenario_context=state["scenario_context"],
+        dashboard_context=dashboard_context,
+        dashboard_semantics=dashboard_semantics,
+    )
+    financial = FinancialReasoningService().select_financial_reasoning(state)
+
+    assert causal["root_cause_analysis"][0]["root_cause"] == root_cause
+    assert causal["scenario_category"] == scenario_category.casefold()
+    assert risk_name in " ".join(causal["causal_chain"])
+    assert root_cause in causal["root_cause_analysis"][0]["business_consequence"]
+    assert kpi_name in financial["primary_drivers"]
+    assert root_cause in financial["derivation"] or kpi_name in financial["derivation"]
+    output = str(causal) + str(financial)
+    for forbidden in ("GDV", "HBU", "hurdle", "handover", "construction"):
+        assert forbidden.casefold() not in output.casefold()
+
+
+def test_explicit_dashboard_semantics_can_use_domain_specific_terms():
+    semantics = {
+        "kpi_definitions": [{
+            "name": "Project Milestone",
+            "root_cause": "Construction schedule constraint",
+            "business_impact": "Handover readiness may be affected.",
+        }],
+    }
+    findings = RootCauseAnalysisService().analyze(
+        scenario={"scenario_type": "project_delay"},
+        dashboard_data={},
+        matched_dashboard_records=[],
+        kpi_insights={"kpis": [{"name": "Project Milestone"}]},
+        rules=[],
+        actions=[],
+        impact_result={},
+        primary_kpi={"name": "Project Milestone"},
+        dashboard_semantics=semantics,
+    )
+
+    assert "Construction schedule constraint" in findings[0]["root_cause"]
+    assert "Handover readiness" in findings[0]["business_consequence"]
+    financial = FinancialReasoningService().select_financial_reasoning({
+        "scenario": {"scenario_type": "project_delay"},
+        "primary_kpi": {"name": "Project Milestone"},
+        "dashboard_context": {"dashboard_semantics": semantics},
+    })
+    assert "Handover readiness" in financial["derivation"]
 
 
 def test_kpi_relevance_uses_matched_entity_evidence():

@@ -596,6 +596,24 @@ class ImpactAnalysisService:
             matched_entities=state.get("entity_match_summary"),
             primary_kpi=state.get("primary_kpi"),
             supporting_kpis=state.get("supporting_kpis", []),
+            selected_risks=state.get("selected_risks") or [
+                risk
+                for risk in (
+                    state.get("primary_risk"),
+                    state.get("secondary_risk"),
+                )
+                if isinstance(risk, dict)
+            ],
+            scenario_context=state.get("scenario_context"),
+            dashboard_context=state.get("dashboard_context"),
+            dashboard_semantics=(
+                (
+                    state["dashboard_context"].get("dashboard_semantics")
+                    or state.get("dashboard_semantics")
+                )
+                if isinstance(state.get("dashboard_context"), dict)
+                else state.get("dashboard_semantics")
+            ),
         )
         impact_result["causal_analysis"] = causal_analysis
         impact_result["root_cause_analysis"] = causal_analysis["root_cause_analysis"]

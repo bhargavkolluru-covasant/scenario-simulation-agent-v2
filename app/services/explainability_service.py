@@ -364,7 +364,11 @@ Executive context:
 {serialized}
 
 Write an executive-ready response with:
-- executive_summary: what changed, why it matters, severity, and a clear leadership recommendation
+- executive_summary: exactly three concise paragraphs separated by blank lines:
+  1. "Business Situation:" followed by what changed.
+  2. "Business Impact:" followed by material outcomes, then "Primary Risk:" and the most significant selected risk.
+  3. "Leadership Action:" followed by the immediate recommended decision.
+  Use KPI evidence internally; explain consequences in business terms instead of listing KPI names.
 - causal_analysis: explain the likely business chain and its evidence; distinguish the causal path from existing problems
 - current_business_context: one concise paragraph
 - business_impact: material enterprise consequences
@@ -378,7 +382,7 @@ Treat root causes and the supplied category-based impact path as hypotheses, not
 Use supplied confidence and assumptions; do not extend the causal path beyond supplied evidence.
 When a monetary estimate is present, explain its matched KPI baseline, calculation, and assumptions.
 Connect the user's scenario to the likely business consequence and the supplied impact path in the executive summary.
-Keep executive_summary under 120 words. Do not invent monetary amounts, causal relationships, business facts, or actions. Do not mention KPI counts,
+Keep executive_summary under 100 words and no more than three paragraphs. Do not enumerate KPIs or invent monetary amounts, causal relationships, business facts, or actions. Do not mention KPI counts,
 record counts, node counts, or workflow information. Avoid telemetry, raw JSON, and
 repetition. Keep the whole response under 250 words.
 Return only a JSON object with the requested fields."""
@@ -501,6 +505,47 @@ def _complete_explanation(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not explanation.get("recommendation_rationale"):
         explanation["recommendation_rationale"] = "See the recommended response."
     return _word_limited(explanation)
+
+
+def _summary_paragraph(label: str, value: Any, maximum: int) -> str:
+    words = " ".join(str(value or "").split()).split()
+    text = " ".join(words[:maximum]).rstrip(" ,;:")
+    text = text.rstrip(".!?")
+    return f"{label}: {text}." if text else f"{label}: Not specified."
+
+
+def _summary_business_language(value: Any, kpis: List[Dict[str, Any]]) -> str:
+    text = _short_text(value, 220)
+    for item in kpis:
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        escaped_name = re.escape(name)
+        text = re.sub(
+            rf"\b{escaped_name}\s+(?:matters|is important)(?:\s+because)?\s*",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            rf"\b{escaped_name}\s+(?:business\s+)?impact\b",
+            "operational pressure",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            rf"\b{escaped_name}\b",
+            "business performance",
+            text,
+            flags=re.IGNORECASE,
+        )
+    text = re.sub(
+        r"\b(?:this|the indicator)\s+matters\s+because\s*",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return " ".join(text.split()).strip(" ,;:-")
 
 
 class ExplainabilityService:
@@ -638,12 +683,6 @@ class ExplainabilityService:
         query = state.get("query") or scenario.get("description") or "The requested scenario"
         current_context = self._context_summary(state.get("matched_dashboard_records", []))
         severity = str(impact.get("overall_severity") or "Unclassified").capitalize()
-        causal = impact.get("causal_analysis", {})
-        if not isinstance(causal, dict):
-            causal = {}
-        causal_path = causal.get("primary_impact_path")
-        if not causal_path and isinstance(causal.get("causal_chain"), list):
-            causal_path = " → ".join(map(str, causal["causal_chain"]))
 
         simulation_result = state.get("simulation_result", {})
         if not isinstance(simulation_result, dict):
@@ -749,13 +788,9 @@ class ExplainabilityService:
         dependency_paths = state.get("dependency_paths") or graph_data.get(
             "dependency_paths", []
         )
-        root_causes = impact.get("root_cause_analysis", [])
         causal_analysis = impact.get("causal_analysis", {})
         if not isinstance(causal_analysis, dict):
             causal_analysis = {}
-        causal_path = causal_analysis.get("primary_impact_path")
-        if not causal_path and isinstance(causal_analysis.get("causal_chain"), list):
-            causal_path = " → ".join(map(str, causal_analysis["causal_chain"]))
         business_consequence = causal_analysis.get("business_consequence")
         related_names = [
             str(item.get("name") or item.get("entity_name"))
@@ -802,14 +837,44 @@ class ExplainabilityService:
             for action in actions
             if isinstance(action, dict) and action.get("title")
         ]
-        kpi_context = "; ".join(
-            f"{item['name']}: {item['value']}" for item in kpis[:3]
-        )
         business_impact = (
-            f"{business_consequence or 'The scenario may affect business performance through the assessed impact pathway.'} "
-            f"{'Relevant indicators include ' + kpi_context + '.' if kpi_context else 'Assess downstream effects against current operating priorities.'}"
-            f"{' Graph-linked entities include ' + ', '.join(related_names[:5]) + '.' if related_names and graph_available else ''}"
+            business_consequence
+            or "Potential consequences should be validated against operational, financial, and customer outcomes."
         )
+        primary_risk = state.get("primary_risk")
+        primary_risk = primary_risk if isinstance(primary_risk, dict) else {}
+        primary_risk_name = (
+            primary_risk.get("name")
+            or (risk_items[0].split(":", 1)[0] if risk_items else "")
+            or "No specific risk was selected; monitor the most material exposure."
+        )
+        primary_risk_impact = (
+            primary_risk.get("business_impact")
+            or primary_risk.get("reason")
+            or ""
+        )
+        if primary_risk_impact:
+            business_impact = primary_risk_impact
+        business_impact = _summary_business_language(business_impact, kpis)
+        summary_action = (
+            response_items[0]
+            if response_items
+            else "Confirm an accountable owner and agree the immediate next decision."
+        )
+        summary_action = _summary_business_language(summary_action, kpis)
+        executive_summary = "\n\n".join((
+            _summary_paragraph(
+                "Business Situation",
+                query or scenario.get("description") or "The requested scenario requires a decision.",
+                28,
+            ),
+            _summary_paragraph(
+                "Business Impact",
+                f"{business_impact} Primary Risk: {primary_risk_name}.",
+                42,
+            ),
+            _summary_paragraph("Leadership Action", summary_action, 26),
+        ))
         graph_impact = (
             f" The graph identifies {len(related_names)} related entities and "
             f"{len(path_summaries)} dependency paths in the supplied topology."
@@ -830,21 +895,7 @@ class ExplainabilityService:
         recommended_response = "; ".join(response_items[:5]) or "No action was selected."
         conclusion = f"Overall impact is assessed as {severity}. Prioritize evidence-based mitigation and monitor the indicators most relevant to the scenario."
         result = {
-            "executive_summary": (
-                f"{query} may lead to {business_consequence or 'downstream business consequences'}"
-                + (f" through {causal_path}. " if causal_path else ". ")
-                + f"The overall impact is assessed as {severity.casefold()}. "
-                + (
-                    f"A potential contributing factor is {root_causes[0].get('root_cause')}; "
-                    if root_causes and isinstance(root_causes[0], dict)
-                    else ""
-                )
-                + (
-                    "Leadership should prioritize the selected mitigation actions."
-                    if response_items
-                    else "No mitigation action was selected."
-                )
-            ),
+            "executive_summary": executive_summary,
             "current_business_context": current_context or "No directly matched business context was available.",
             "business_impact": business_impact,
             "financial_impact": " ".join(financial_parts),

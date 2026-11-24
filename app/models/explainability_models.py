@@ -8,7 +8,10 @@ class ExplanationResult(BaseModel):
     """
     executive_summary: Union[str, List[str], None] = Field(
         default="",
-        description="Concise explanation of what could happen and why it matters.",
+        description=(
+            "Up to three executive-focused paragraphs covering business situation, "
+            "business impact and primary risk, and leadership action."
+        ),
     )
     current_business_context: Union[str, List[str], None] = Field(
         default="",

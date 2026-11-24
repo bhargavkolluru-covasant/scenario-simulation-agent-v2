@@ -89,7 +89,11 @@ async def test_graph_intelligence_flows_into_simulation_impact_and_report(monkey
     await ExplainabilityService(llm_service=capturing_llm).explain(state)
     assert "Executive context:" in capturing_llm.prompt
     assert "Contract Package A" in capturing_llm.prompt
-    assert "Handover delay threshold" in capturing_llm.prompt
+    reasoning_output = str(impact["causal_analysis"]) + str(
+        impact["root_cause_analysis"]
+    )
+    for domain_term in ("GDV", "HBU", "hurdle", "handover", "construction"):
+        assert domain_term.casefold() not in reasoning_output.casefold()
     assert "## Knowledge Graph Findings" not in report["markdown_report"]
     assert "## Affected Entities" not in report["markdown_report"]
     assert "## Blast Radius Analysis" not in report["markdown_report"]

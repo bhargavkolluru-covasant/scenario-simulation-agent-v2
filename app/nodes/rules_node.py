@@ -1,6 +1,7 @@
 import logging
 from typing import Any, Dict, List
 from app.clients.rules_client import RulesClient
+from app.services.rule_relevance_service import filter_relevant_rules
 from app.state.simulation_state import SimulationState
 
 logger = logging.getLogger(__name__)
@@ -28,14 +29,17 @@ async def rules_node(state: SimulationState) -> SimulationState:
         if not isinstance(rules_list, list):
             rules_list = []
 
-        # If rules list has basic rules, we can fetch explanations for critical ones
-        enriched_rules: List[Dict[str, Any]] = []
-        for r in rules_list:
-            if isinstance(r, dict):
-                enriched_rules.append(r)
+        candidate_rules: List[Dict[str, Any]] = [
+            rule for rule in rules_list if isinstance(rule, dict)
+        ]
+        enriched_rules = filter_relevant_rules(candidate_rules, state)
 
         state["rules"] = enriched_rules
-        logger.info(f"[rules_node] Loaded {len(enriched_rules)} business rules")
+        logger.info(
+            "[rules_node] Retained %d of %d rules relevant to selected context",
+            len(enriched_rules),
+            len(candidate_rules),
+        )
 
     except Exception as exc:
         logger.warning(f"[rules_node] Rules retrieval warning: {exc}")

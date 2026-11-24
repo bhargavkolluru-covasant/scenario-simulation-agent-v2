@@ -741,92 +741,111 @@ def _executive_summary(
     scenario_description: str,
     entity: str,
     primary_kpi: Dict[str, Any] | None,
-    kpi_details: List[tuple[str, Any]],
+    supporting_kpis: List[Dict[str, Any]],
     risk: Dict[str, Any] | None,
     business_impact: str,
     recommended_action: str,
     expected_outcome: str,
-    supporting_kpis: List[Dict[str, Any]],
-    dashboard_records: List[Dict[str, Any]],
 ) -> str:
-    kpi_name = _item_name(primary_kpi, "business performance") if primary_kpi else "business performance"
-    if scenario_description:
-        changed = _sentence(scenario_description)
-    elif entity:
-        changed = _sentence(
-            f"Current business conditions at {entity} require leadership attention"
-        )
-    elif kpi_details:
-        changed = _sentence(
-            f"The latest dashboard observation for {kpi_name} is {_display_text(kpi_details[0][1])}"
-        )
-    else:
-        changed = _sentence(f"Leadership is reviewing {kpi_name}")
-
-    evidence = "; ".join(
-        f"{label.lower()} {_display_text(value)}"
-        for label, value in kpi_details[:3]
-        if label not in {
-            "Leading Option",
-            "Project",
-            "Location",
-            "Target Handover",
-            "Status",
-        }
-    )
-    if not evidence and kpi_details:
-        evidence = ", ".join(
-            f"{label.lower()} {_display_text(value)}"
-            for label, value in kpi_details[:3]
-        )
-    why_parts = []
-    if business_impact:
-        why_parts.append(_sentence(f"This matters because {_lower_first(business_impact).rstrip('.!?')}"))
+    metric_names = []
     if primary_kpi:
-        indicator_sentence = f"The most important indicator is {kpi_name}"
-        if evidence:
-            indicator_sentence += f", with {evidence}"
-        if entity and entity.casefold() not in indicator_sentence.casefold():
-            indicator_sentence += f" informing the outlook for {entity}"
-        why_parts.append(_sentence(indicator_sentence))
-    elif evidence:
-        why_parts.append(_sentence(f"Dashboard evidence shows {evidence}"))
+        metric_names.append(_item_name(primary_kpi, ""))
+    metric_names.extend(
+        _item_name(item, "")
+        for item in supporting_kpis
+    )
 
-    risk_name = _item_name(risk, "business continuity") if risk else "business continuity"
-    risk_sentence = _sentence(f"The greatest business risk is {risk_name}")
-    detail_labels = dict(kpi_details)
-    project = detail_labels.get("Project")
-    if project:
-        project_context = f"Project observations identify {_display_text(project)}"
-        if detail_labels.get("Location"):
-            project_context += f" in {_display_text(detail_labels['Location'])}"
-        if detail_labels.get("Target Handover"):
-            project_context += (
-                f", with target handover on {_display_text(detail_labels['Target Handover'])}"
+    def business_language(value: Any) -> str:
+        text = _display_text(value)
+        for metric_name in sorted(metric_names, key=len, reverse=True):
+            if not metric_name:
+                continue
+            escaped_name = re.escape(metric_name)
+            text = re.sub(
+                rf"\b{escaped_name}\s+(?:matters|is important)(?:\s+because)?\s*",
+                "",
+                text,
+                flags=re.IGNORECASE,
             )
-        if detail_labels.get("Status"):
-            project_context += f" and status {_display_text(detail_labels['Status'])}"
-        why_parts.append(_sentence(project_context))
-    for supporting in supporting_kpis[:2]:
-        supporting_name = _item_name(supporting, "business indicator")
-        supporting_reason = _supporting_kpi_reason(supporting, dashboard_records)
-        why_parts.append(
-            _sentence(f"{supporting_name} also matters because {_lower_first(supporting_reason)}")
-        )
-    if recommended_action:
-        action_sentence = _sentence(
-            f"Leadership should {recommended_action[0].lower() + recommended_action[1:]}"
-        )
-        if expected_outcome:
-            action_sentence = _sentence(
-                f"{action_sentence.rstrip('.')} to help {_lower_first(expected_outcome).rstrip('.!?')}"
+            text = re.sub(
+                rf"\b{escaped_name}\s+(?:business\s+)?impact\b",
+                "operational pressure",
+                text,
+                flags=re.IGNORECASE,
             )
+            text = re.sub(
+                rf"\b{escaped_name}\b",
+                "business performance",
+                text,
+                flags=re.IGNORECASE,
+            )
+        text = re.sub(
+            r"\b(?:this|the indicator)\s+matters\s+because\s*",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+        text = text.strip(" \t\r\n,;:-")
+        return text[:1].upper() + text[1:] if text else ""
+
+    if scenario_description:
+        situation = _display_text(scenario_description)
+        if entity and entity.casefold() not in situation.casefold():
+            situation = f"For {entity}, {situation[:1].lower() + situation[1:]}"
+    elif entity:
+        situation = f"Current conditions at {entity} require an executive decision."
     else:
-        action_sentence = _sentence(
-            f"Leadership should set clear accountability for {kpi_name} and monitor progress"
+        situation = "The business is assessing a change that requires an executive decision."
+    situation = _limit_words(_sentence(f"Business Situation: {situation}"), 35)
+
+    impact = business_language(business_impact)
+    if not impact and primary_kpi:
+        for field in (
+            "business_impact",
+            "business_relevance",
+            "why_it_matters",
+            "meaning",
+            "description",
+            "reasoning",
+        ):
+            impact = business_language(primary_kpi.get(field))
+            if impact:
+                break
+    if not impact:
+        impact = (
+            "Potential operational, financial, and customer consequences should "
+            "be validated against available evidence."
         )
-    narrative = " ".join([changed, *why_parts, risk_sentence, action_sentence])
-    return _limit_words(narrative, 120)
+
+    risk_name = _item_name(risk, "") if risk else ""
+    risk_reason = business_language(
+        (risk or {}).get("reason") or (risk or {}).get("rationale")
+    )
+    primary_risk = (
+        f"{risk_name} - {risk_reason}" if risk_name and risk_reason
+        else risk_name or risk_reason
+        or "No specific risk was selected; monitor the most material exposure."
+    )
+    impact_paragraph = _limit_words(
+        _sentence(f"Business Impact: {impact} Primary Risk: {primary_risk}"),
+        48,
+    )
+
+    action = business_language(recommended_action)
+    if not action:
+        action = (
+            "Confirm an accountable owner and agree the immediate next decision."
+        )
+    elif expected_outcome:
+        outcome = business_language(expected_outcome)
+        if outcome and outcome.casefold() not in action.casefold():
+            action = f"{action.rstrip('.!?')} to {outcome[:1].lower() + outcome[1:]}"
+    action_paragraph = _limit_words(
+        _sentence(f"Leadership Action: {action}"),
+        35,
+    )
+    return "\n\n".join((situation, impact_paragraph, action_paragraph))
 
 
 def _executive_conclusion(
@@ -946,11 +965,6 @@ class ReportService:
             or first_action.get("business_benefit")
         )
 
-        primary_details = (
-            _selected_kpi_details(primary_kpi, dashboard_records)
-            if primary_kpi
-            else []
-        )
         situation = (
             f"Leadership's decision focus is {primary_kpi_name}."
             if primary_kpi
@@ -964,16 +978,14 @@ class ReportService:
             "expected_outcome": expected_outcome or "No expected outcome was supplied.",
         }
         summary = _executive_summary(
-            scenario_description,
+            scenario_description or query,
             primary_entity,
             primary_kpi,
-            primary_details,
+            supporting_kpis,
             conclusion_risk,
             business_impact,
             action_detail or action_name,
             expected_outcome,
-            supporting_kpis,
-            dashboard_records,
         )
 
         markdown_lines = [

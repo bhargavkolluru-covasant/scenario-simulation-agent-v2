@@ -9,36 +9,6 @@ _KPI_NAME_KEYS = ("kpi_name", "metric_name", "name", "title", "label", "metric")
 _KPI_VALUE_KEYS = ("kpi_value", "value", "current_value", "metric_value", "score", "amount", "count")
 _CONFIDENCE_KEYS = ("confidence_score", "confidence")
 _KPI_COLLECTIONS = ("kpis", "recent_kpis", "insights", "items", "data", "results")
-_SCENARIO_CATEGORY_TERMS = {
-    "CUSTOMER_EXPERIENCE": (
-        "customer experience", "customer satisfaction", "satisfaction", "customer",
-        "client experience", "retention", "complaint", "loyalty", "csat",
-    ),
-    "FINANCIAL": (
-        "financial", "finance", "cash flow", "cashflow", "liquidity", "revenue", "profit",
-        "margin", "cost", "funding", "receivable", "payable", "sales",
-        "pricing", "collection", "collections", "budget",
-    ),
-    "OPERATIONAL": (
-        "operational", "throughput", "capacity", "productivity", "efficiency",
-        "downtime", "delivery", "quality", "inventory", "shortage", "output",
-        "production", "manufacturing", "construction", "procurement", "supplier",
-        "schedule", "lead time", "project execution", "handover", "delay", "delayed",
-        "late", "slippage",
-    ),
-    "COMPLIANCE": (
-        "compliance", "regulatory", "violation", "audit", "policy", "penalty",
-        "control breach",
-    ),
-    "STRATEGIC": (
-        "strategic", "strategy", "growth", "market share", "objective",
-        "investment", "transformation", "portfolio", "value realization",
-    ),
-    "RISK": (
-        "risk", "exposure", "incident", "threat", "continuity", "resilience",
-        "vulnerability",
-    ),
-}
 _STOP_WORDS = {
     "about", "after", "again", "against", "could", "does", "during", "from",
     "have", "into", "might", "more", "most", "should", "than", "that", "their",
@@ -86,49 +56,63 @@ def _scenario_text(scenario: Any) -> str:
     return str(scenario or "")
 
 
-def classify_scenario(scenario: Any, kpi_records: Optional[List[Dict[str, Any]]] = None) -> str:
-    """Classify scenario intent before considering unrelated current KPI exposure."""
-    if isinstance(scenario, dict):
-        explicit_category = str(
-            scenario.get("scenario_category")
-            or scenario.get("category")
-            or scenario.get("risk_category")
-            or ""
-        ).strip().upper().replace("-", "_").replace(" ", "_")
-        aliases = {
-            "CUSTOMER": "CUSTOMER_EXPERIENCE",
-            "CUSTOMER_EXPERIENCE": "CUSTOMER_EXPERIENCE",
-            "FINANCE": "FINANCIAL",
-            "FINANCIAL": "FINANCIAL",
-            "OPERATIONS": "OPERATIONAL",
-            "OPERATIONAL": "OPERATIONAL",
-            "COMPLIANCE": "COMPLIANCE",
-            "RISK": "RISK",
-            "STRATEGY": "STRATEGIC",
-            "STRATEGIC": "STRATEGIC",
-        }
-        if explicit_category in aliases:
-            return aliases[explicit_category]
-    text = _scenario_text(scenario).casefold()
-    category_scores = {
-        category: sum(
-            1 for term in terms
-            if re.search(rf"(?<!\w){re.escape(term)}(?!\w)", text)
-        )
-        for category, terms in _SCENARIO_CATEGORY_TERMS.items()
-    }
-    if any(category_scores.values()):
-        priority = ("CUSTOMER_EXPERIENCE", "COMPLIANCE", "FINANCIAL", "OPERATIONAL", "STRATEGIC", "RISK")
-        return max(priority, key=lambda category: (category_scores[category], -priority.index(category)))
+def classify_scenario(
+    scenario: Any,
+    kpi_records: Optional[List[Dict[str, Any]]] = None,
+    scenario_context: Any = None,
+    dashboard_semantics: Any = None,
+    dashboard_context: Any = None,
+) -> str:
+    """Resolve only declared scenario categories; do not infer them from prose."""
+    sources = (
+        (scenario_context, ("scenario_category", "category", "intent_type")),
+        (scenario, ("scenario_category", "category", "risk_category")),
+        (dashboard_semantics, ("scenario_category", "intent_type")),
+    )
+    for source, keys in sources:
+        if not isinstance(source, dict):
+            continue
+        category = next((source.get(key) for key in keys if source.get(key)), None)
+        if isinstance(category, dict):
+            category = category.get("category") or category.get("scenario_category")
+        if isinstance(category, str) and category.strip():
+            normalized = category.strip().upper().replace("-", "_").replace(" ", "_")
+            if normalized not in {"UNCLASSIFIED", "UNKNOWN", "UNSPECIFIED"}:
+                return normalized
+
+    capabilities = None
+    for source in (dashboard_semantics, dashboard_context):
+        if isinstance(source, dict):
+            capabilities = (
+                source.get("capabilities")
+                or source.get("dashboard_capabilities")
+            )
+            if isinstance(capabilities, dict):
+                break
+    scenario_type = (
+        scenario.get("scenario_type")
+        if isinstance(scenario, dict)
+        else None
+    )
+    intent_map = capabilities.get("scenario_intent_map") if isinstance(capabilities, dict) else None
+    if isinstance(intent_map, dict) and scenario_type:
+        normalized_type = str(scenario_type).strip().casefold().replace("-", "_").replace(" ", "_")
+        for key, mapping in intent_map.items():
+            if str(key).strip().casefold().replace("-", "_").replace(" ", "_") != normalized_type:
+                continue
+            if isinstance(mapping, dict):
+                mapped = mapping.get("scenario_category") or mapping.get("category")
+                if isinstance(mapped, str) and mapped.strip():
+                    return mapped.strip().upper().replace("-", "_").replace(" ", "_")
+            elif isinstance(mapping, str) and mapping.strip():
+                return mapping.strip().upper().replace("-", "_").replace(" ", "_")
+
     if kpi_records:
-        primary = max(
-            kpi_records,
-            key=lambda record: _kpi_relevance(record, _tokens(text), [])[:2],
-        )
-        return {
-            "CUSTOMER": "CUSTOMER_EXPERIENCE",
-        }.get(classify_kpi(primary), classify_kpi(primary))
-    return "RISK"
+        for record in kpi_records:
+            category = record.get("scenario_category") or record.get("category")
+            if isinstance(category, str) and category.strip():
+                return category.strip().upper().replace("-", "_").replace(" ", "_")
+    return "UNCLASSIFIED"
 
 
 def _text(value: Any) -> str:
@@ -142,6 +126,31 @@ def _text(value: Any) -> str:
 def _brief(value: Any, words: int = 18) -> str:
     parts = " ".join(_text(value).split()).split()
     return " ".join(parts[:words]) + ("…" if len(parts) > words else "")
+
+
+def _filter_unlisted_domain_terms(value: Any, dashboard_semantics: Dict[str, Any]) -> Any:
+    semantic_text = str(dashboard_semantics).casefold()
+    if isinstance(value, dict):
+        return {
+            key: _filter_unlisted_domain_terms(item, dashboard_semantics)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _filter_unlisted_domain_terms(item, dashboard_semantics)
+            for item in value
+        ]
+    if not isinstance(value, str):
+        return value
+    for term in ("GDV", "HBU", "hurdle", "handover", "construction"):
+        if not re.search(rf"\b{re.escape(term)}\b", semantic_text):
+            value = re.sub(
+                rf"\b{re.escape(term)}\b",
+                " ",
+                value,
+                flags=re.IGNORECASE,
+            )
+    return " ".join(value.split())
 
 
 def _confidence(value: Any) -> Optional[float]:
@@ -321,56 +330,55 @@ def build_business_causal_chain(
     scenario: Any,
     scenario_category: str,
     primary_business_entity: str = "",
+    primary_kpi: Any = None,
+    supporting_kpis: Any = None,
+    selected_risks: Any = None,
+    dashboard_semantics: Any = None,
+    root_causes: Any = None,
 ) -> List[str]:
-    """Translate a scenario into downstream business outcomes, not a KPI sequence."""
-    text = _scenario_text(scenario).casefold()
-    entity = primary_business_entity.strip()
-    is_delay = any(
-        term in text for term in ("delay", "delayed", "handover", "slippage", "schedule")
+    """Build a cautious evidence path from the selected dashboard context."""
+    metadata = dashboard_semantics if isinstance(dashboard_semantics, dict) else {}
+    scenario_label = (
+        _brief(scenario.get("description") or scenario.get("scenario_type") or scenario, words=12)
+        if isinstance(scenario, dict)
+        else _brief(scenario, words=12)
     )
-    if scenario_category == "OPERATIONAL" and is_delay:
-        first = f"{entity} handover delay" if entity else "Project handover delay"
-        return [
-            first,
-            "Customer Commitment Risk",
-            "Revenue Recognition Delay",
-            "Cashflow Pressure",
-            "Enterprise Risk",
-        ]
-    if scenario_category == "CUSTOMER_EXPERIENCE":
-        first = f"{entity} customer experience deterioration" if entity else "Customer Experience Deterioration"
-        return [
-            first,
-            "Customer Retention Risk",
-            "Revenue Risk",
-            "Enterprise Risk",
-        ]
-    if scenario_category == "FINANCIAL":
-        first = f"{entity} financial pressure" if entity else "Financial Pressure"
-        return [
-            first,
-            "Liquidity Constraint",
-            "Investment Capacity Pressure",
-            "Enterprise Risk",
-        ]
-    if scenario_category == "COMPLIANCE":
-        first = f"{entity} control or compliance gap" if entity else "Control or Compliance Gap"
-        return [
-            first,
-            "Regulatory or Audit Exposure",
-            "Remediation and Penalty Risk",
-            "Enterprise Risk",
-        ]
-    if scenario_category == "STRATEGIC":
-        first = f"{entity} strategic delivery pressure" if entity else "Strategic Delivery Pressure"
-        return [
-            first,
-            "Milestone Slippage",
-            "Value Realization Delay",
-            "Enterprise Risk",
-        ]
-    first = f"{entity} scenario exposure" if entity else "Scenario Exposure"
-    return [first, "Operational and Financial Pressure", "Enterprise Risk"]
+    entity = primary_business_entity.strip()
+    primary_name = _kpi_name(primary_kpi) if isinstance(primary_kpi, dict) else ""
+    root_cause = ""
+    if isinstance(root_causes, list) and root_causes and isinstance(root_causes[0], dict):
+        root_cause = str(root_causes[0].get("root_cause") or "")
+    risks = selected_risks if isinstance(selected_risks, list) else []
+    risk_names = [
+        _brief(
+            risk.get("name") or risk.get("title") or risk.get("risk") or risk.get("description"),
+            words=10,
+        )
+        for risk in risks
+        if isinstance(risk, dict)
+    ]
+    kpi_names = [
+        _kpi_name(item)
+        for item in (supporting_kpis if isinstance(supporting_kpis, list) else [])
+        if isinstance(item, dict)
+    ]
+    path = [
+        item
+        for item in (
+            f"{entity}: {scenario_label}" if entity and scenario_label else scenario_label,
+            f"Selected indicator: {primary_name}" if primary_name else "",
+            f"Evidence-based contributor: {root_cause}" if root_cause else "",
+            *[f"Related indicator: {name}" for name in kpi_names[:2] if name],
+            *[f"Selected risk: {name}" for name in risk_names[:2] if name],
+        )
+        if item
+    ]
+    if not path:
+        path.append("Insufficient scenario-linked evidence to establish an impact path.")
+    declared_path = metadata.get("causal_path")
+    if isinstance(declared_path, list) and declared_path:
+        return [_brief(item, words=18) for item in declared_path if item not in (None, "")]
+    return path[:6]
 
 
 def _graph_context(
@@ -441,13 +449,31 @@ class CausalReasoningService:
         matched_entities: Any = None,
         primary_kpi: Any = None,
         supporting_kpis: Any = None,
+        selected_risks: Any = None,
+        scenario_context: Any = None,
+        dashboard_context: Any = None,
+        dashboard_semantics: Any = None,
     ) -> Dict[str, Any]:
         scenario_text = _scenario_text(scenario)
         matched = matched_dashboard_records if isinstance(matched_dashboard_records, list) else []
         if not matched:
             matched = _records(dashboard_data)
         all_kpis = _records(kpi_insights)
-        scenario_category = classify_scenario(scenario, all_kpis)
+        if not isinstance(dashboard_context, dict):
+            dashboard_context = {}
+        if not isinstance(dashboard_semantics, dict):
+            dashboard_semantics = dashboard_context.get("dashboard_semantics")
+        if not isinstance(dashboard_semantics, dict):
+            dashboard_semantics = {}
+        if not isinstance(scenario_context, dict):
+            scenario_context = {}
+        scenario_category = classify_scenario(
+            scenario,
+            all_kpis,
+            scenario_context=scenario_context,
+            dashboard_semantics=dashboard_semantics,
+            dashboard_context=dashboard_context,
+        )
         selected_kpis = [
             item
             for item in [primary_kpi]
@@ -456,7 +482,11 @@ class CausalReasoningService:
         ]
         kpis = selected_kpis
         primary = kpis[0] if kpis else {}
-        category = scenario_category
+        category = str(
+            (primary.get("scenario_category") or primary.get("category"))
+            if primary and (primary.get("scenario_category") or primary.get("category"))
+            else scenario_category
+        )
         primary_name = _kpi_name(primary) if primary else ""
         matched_entity_values = (
             matched_entities.get("target_entity", "")
@@ -465,11 +495,6 @@ class CausalReasoningService:
         )
         if not matched_entity_values and isinstance(scenario, dict):
             matched_entity_values = scenario.get("target_entity", "")
-        path = build_business_causal_chain(
-            scenario,
-            scenario_category,
-            str(matched_entity_values or ""),
-        )
         graph_available, graph_evidence = _graph_context(
             graph_summary,
             dependency_paths,
@@ -486,6 +511,22 @@ class CausalReasoningService:
             actions=actions,
             impact_result=impact,
             scenario_category=scenario_category,
+            primary_kpi=primary,
+            supporting_kpis=kpis[1:],
+            selected_risks=selected_risks,
+            dashboard_context=dashboard_context,
+            dashboard_semantics=dashboard_semantics,
+            scenario_context=scenario_context,
+        )
+        path = build_business_causal_chain(
+            scenario,
+            scenario_category,
+            str(matched_entity_values or ""),
+            primary_kpi=primary,
+            supporting_kpis=kpis[1:],
+            selected_risks=selected_risks,
+            dashboard_semantics=dashboard_semantics,
+            root_causes=root_causes,
         )
         if graph_evidence and root_causes:
             root_causes[0]["evidence"] = list(dict.fromkeys(
@@ -504,7 +545,8 @@ class CausalReasoningService:
                 scenario=scenario,
                 record=primary,
                 matched_records=matched,
-                dashboard_context=dashboard_data,
+                dashboard_context=dashboard_context,
+                business_context=dashboard_semantics,
                 scenario_category=scenario_category,
                 matched_entities=matched_entities,
             )
@@ -522,7 +564,8 @@ class CausalReasoningService:
                 scenario=scenario,
                 record=record,
                 matched_records=matched,
-                dashboard_context=dashboard_data,
+                dashboard_context=dashboard_context,
+                business_context=dashboard_semantics,
                 scenario_category=scenario_category,
                 matched_entities=matched_entities,
             )
@@ -541,7 +584,7 @@ class CausalReasoningService:
         if graph_evidence:
             causal_basis.append({"source": "Knowledge Graph", "evidence": graph_evidence})
 
-        return {
+        return _filter_unlisted_domain_terms({
             "scenario_change": _brief(scenario_text, words=30),
             "scenario_category": scenario_category.casefold(),
             "kpi_relevance": {
@@ -549,7 +592,8 @@ class CausalReasoningService:
                     scenario=scenario,
                     record=record,
                     matched_records=matched,
-                    dashboard_context=dashboard_data,
+                    dashboard_context=dashboard_context,
+                    business_context=dashboard_semantics,
                     scenario_category=scenario_category,
                     matched_entities=matched_entities,
                 )
@@ -562,14 +606,7 @@ class CausalReasoningService:
             "business_consequence": (
                 root_causes[0]["business_consequence"]
                 if root_causes
-                else {
-                    "CUSTOMER_EXPERIENCE": "Customer trust and retention may weaken, reducing future demand and revenue.",
-                    "FINANCIAL": "Liquidity pressure may constrain investment and funding capacity.",
-                    "OPERATIONAL": "Execution disruption may impair service reliability and create downstream financial pressure.",
-                    "COMPLIANCE": "Regulatory findings may trigger penalties and reputational consequences.",
-                    "STRATEGIC": "Execution gaps may delay value realization and weaken strategic outcomes.",
-                    "RISK": "Existing vulnerabilities may increase enterprise and continuity exposure.",
-                }.get(scenario_category, "The scenario may create downstream business consequences that require validation."),
+                else "Potential business consequences require validation against dashboard evidence."
             ),
             "causal_basis": causal_basis,
             "graph_evidence": graph_evidence,
@@ -594,4 +631,4 @@ class CausalReasoningService:
                 if isinstance(item, dict)
             ],
             "root_cause_analysis": root_causes[:5],
-        }
+        }, dashboard_semantics)

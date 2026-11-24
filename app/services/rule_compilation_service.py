@@ -81,7 +81,11 @@ class RuleCompilationService:
             change_type = scenario.get("change_type", "disruption")
             pct = scenario.get("change_percentage", 100)
             horizon = scenario.get("time_horizon", "next quarter")
-            domain = scenario.get("domain", "supply_chain")
+            domain = (
+                scenario.get("domain")
+                or scenario.get("business_domain")
+                or "UNCLASSIFIED"
+            )
 
             nl_desc = (
                 scenario.get("description")
@@ -223,9 +227,8 @@ Return ONLY valid JSON.
             status="active",
             created_by=created_by,
             actions=[
-                "ALERT_OPERATIONS",
-                "TRIGGER_SECONDARY_SOURCING",
-                "REVIEW_OPEN_INVOICES",
+                "VALIDATE_SCENARIO_EVIDENCE",
+                "NOTIFY_ACCOUNTABLE_OWNER",
             ],
             explanation="Automatically compiled from scenario stress-test criteria.",
         )

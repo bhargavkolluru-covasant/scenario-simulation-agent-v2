@@ -1,4 +1,5 @@
 import asyncio
+import json
 import pytest
 from unittest.mock import AsyncMock
 
@@ -261,6 +262,295 @@ async def test_full_simulation_workflow(monkeypatch):
     print("Scenario:", result.get("scenario"))
     print("Explanation:", result.get("explanation"))
     print("All assertions passed successfully!")
+
+
+@pytest.mark.asyncio
+async def test_logistics_demand_increase_runs_domain_agnostic_workflow(monkeypatch):
+    class LogisticsLLM:
+        is_configured = False
+
+        async def generate_json(self, prompt, **kwargs):
+            if "Select exactly ONE primary KPI" not in prompt:
+                return {}
+            return {
+                "primary_kpi": {"name": "Shipment Volume"},
+                "supporting_kpis": [
+                    {"name": "Fleet Utilization"},
+                    {"name": "On-Time Delivery"},
+                ],
+                "primary_risk": {
+                    "name": "Delivery Capacity Risk",
+                    "severity": "HIGH",
+                    "business_impact": (
+                        "A demand increase may exceed available capacity and "
+                        "create Fleet Utilization Impact across the network."
+                    ),
+                    "reason": (
+                        "Shipment Volume is increasing faster than available "
+                        "fleet capacity."
+                    ),
+                },
+                "secondary_risk": {
+                    "name": "Workforce Capacity Constraints",
+                    "severity": "MEDIUM",
+                    "business_impact": (
+                        "Staffing availability may constrain warehouse throughput."
+                    ),
+                    "reason": (
+                        "Warehouse throughput depends on available workforce capacity."
+                    ),
+                },
+                "actions": [
+                    {
+                        "horizon": "Immediate",
+                        "action": (
+                            "Logistics Recommendations: validate available fleet "
+                            "and delivery capacity against the demand forecast."
+                        ),
+                        "business_benefit": (
+                            "Identifies capacity gaps before the next-quarter increase."
+                        ),
+                        "expected_outcome": (
+                            "A validated fleet and delivery capacity plan."
+                        ),
+                    },
+                    {
+                        "horizon": "Near term",
+                        "action": (
+                            "Align workforce schedules with projected warehouse "
+                            "throughput."
+                        ),
+                        "business_benefit": (
+                            "Reduces workforce constraints as shipment volume changes."
+                        ),
+                        "expected_outcome": (
+                            "Staffing coverage aligned to the demand forecast."
+                        ),
+                    },
+                    {
+                        "horizon": "Next quarter",
+                        "action": (
+                            "Monitor on-time delivery and fleet utilization against "
+                            "the scenario."
+                        ),
+                        "business_benefit": (
+                            "Provides early warning of service and capacity pressure."
+                        ),
+                        "expected_outcome": (
+                            "Timely response to measurable logistics thresholds."
+                        ),
+                    },
+                ],
+            }
+
+        async def generate_text(self, *args, **kwargs):
+            return ""
+
+    dashboard_data = {
+        "widgets": [
+            {
+                "title": name,
+                "data": {
+                    "rows": [{
+                        "entity_reference": "Regional Distribution Network",
+                        "name": name,
+                        "value": value,
+                    }],
+                },
+            }
+            for name, value in (
+                ("Shipment Volume", 10000),
+                ("Fleet Utilization", 0.78),
+                ("Fuel Cost", 42000),
+                ("On-Time Delivery", 0.94),
+                ("Warehouse Throughput", 8500),
+            )
+        ],
+    }
+    dashboard_definition = {
+        "id": "logistics-dashboard",
+        "name": "Logistics Dashboard",
+        "category": "LOGISTICS",
+        "semantic_metadata": {
+            "business_domain": "logistics",
+            "business_intent": "Plan logistics network capacity and service.",
+            "kpi_definitions": [
+                {
+                    "name": "Shipment Volume",
+                    "meaning": "Number of shipments handled in the period.",
+                    "root_cause": (
+                        "Shipment demand may grow faster than available delivery capacity."
+                    ),
+                    "business_impact": (
+                        "Demand growth may increase the load on available fleet capacity."
+                    ),
+                },
+                {
+                    "name": "Fleet Utilization",
+                    "meaning": "Share of available fleet capacity in use.",
+                    "root_cause": (
+                        "Fleet capacity may not keep pace with shipment volume."
+                    ),
+                    "business_impact": (
+                        "Fleet Utilization Impact may affect delivery service levels."
+                    ),
+                },
+                {
+                    "name": "Fuel Cost",
+                    "meaning": "Fuel expenditure for logistics operations.",
+                },
+                {
+                    "name": "On-Time Delivery",
+                    "meaning": "Share of shipments delivered on schedule.",
+                },
+                {
+                    "name": "Warehouse Throughput",
+                    "meaning": "Volume processed through logistics facilities.",
+                    "root_cause": "Workforce capacity constraints may limit processing.",
+                },
+            ],
+            "capabilities": {
+                "scenario_intent_map": {
+                    "shipment_demand_increase": {
+                        "scenario_category": "DEMAND_GROWTH",
+                    },
+                },
+                "scenario_strategy_map": {
+                    "shipment_demand_increase": {
+                        "strategy": "CAPACITY_PLANNING",
+                        "methodology": ["Compare demand forecast with available capacity."],
+                    },
+                },
+            },
+        },
+    }
+    monkeypatch.setattr(
+        LLMGateway,
+        "get_service",
+        staticmethod(lambda: LogisticsLLM()),
+    )
+    monkeypatch.setattr(
+        ScenarioParserService,
+        "parse",
+        AsyncMock(return_value={
+            "scenario_type": "shipment_demand_increase",
+            "target_entity": "Regional Distribution Network",
+            "change_type": "increase",
+            "change_percentage": 20,
+            "time_horizon": "next quarter",
+            "domain": "logistics",
+            "description": (
+                "Shipment demand increases by 20% next quarter."
+            ),
+        }),
+    )
+    monkeypatch.setattr(
+        DashboardClient,
+        "get_dashboard_data",
+        AsyncMock(return_value=dashboard_data),
+    )
+    monkeypatch.setattr(
+        DashboardClient,
+        "get_dashboard",
+        AsyncMock(return_value=dashboard_definition),
+    )
+    monkeypatch.setattr(
+        KPIInsightsClient,
+        "get_kpis",
+        AsyncMock(return_value={
+            "kpis": [
+                {
+                    "name": name,
+                    "value": value,
+                    "reasoning": f"{name} is relevant to logistics capacity.",
+                    "confidence_score": 0.9,
+                }
+                for name, value in (
+                    ("Shipment Volume", 10000),
+                    ("Fleet Utilization", 0.78),
+                    ("Fuel Cost", 42000),
+                    ("On-Time Delivery", 0.94),
+                    ("Warehouse Throughput", 8500),
+                )
+            ],
+        }),
+    )
+    monkeypatch.setattr(
+        KPIInsightsClient,
+        "get_insights_stats",
+        AsyncMock(return_value={"total_kpis": 5}),
+    )
+    monkeypatch.setattr(
+        ActionsClient,
+        "get_actions",
+        AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        ActionsClient,
+        "get_action_stats",
+        AsyncMock(return_value={"critical_actions": 0, "overdue_actions": 0}),
+    )
+    monkeypatch.setattr(
+        RulesClient,
+        "get_rules",
+        AsyncMock(return_value={"rules": []}),
+    )
+    monkeypatch.setattr(
+        KnowledgeGraphClient,
+        "get_knowledge_graph",
+        AsyncMock(return_value={"nodes": [], "edges": [], "stats": {}}),
+    )
+
+    result = await workflow.ainvoke({
+        "query": "What happens if shipment demand increases by 20% next quarter?",
+        "context": {
+            "enterprise_id": "enterprise-logistics",
+            "domain_ids": ["logistics"],
+        },
+        "access_token": "workflow-test-token",
+        "dashboard_id": "logistics-dashboard",
+        "semantic_entities": [],
+    })
+
+    assert result["status"] == "COMPLETED"
+    assert result["final_report"]["report_id"].startswith("REP-")
+    assert result["simulation_strategy_context"]["strategy"] == "CAPACITY_PLANNING"
+    assert result["dashboard_context"]["category"] == "LOGISTICS"
+    assert result["scenario_context"]["scenario_category"] == "DEMAND_GROWTH"
+    assert result["simulation_result"]["metrics"]["financial_model"]
+    assert result["final_report"]["primary_kpi"]["name"] == "Shipment Volume"
+    assert result["final_report"]["primary_risk"]["name"] == "Delivery Capacity Risk"
+    assert result["final_report"]["secondary_risk"]["name"] == (
+        "Workforce Capacity Constraints"
+    )
+    assert "Fleet Utilization" in {
+        item["name"] for item in result["final_report"]["supporting_kpis"]
+    }
+
+    report_text = result["final_report"]["markdown_report"]
+    for expected in (
+        "Delivery Capacity Risk",
+        "Fleet Utilization Impact",
+        "Workforce Capacity Constraints",
+        "Logistics Recommendations",
+    ):
+        assert expected in report_text
+    generated_output = json.dumps({
+        "final_report": result["final_report"],
+        "simulation_result": result["simulation_result"],
+        "impact_result": result["impact_result"],
+        "recommendations": result["recommendations"],
+        "financial_reasoning": result["financial_reasoning"],
+    }, default=str)
+    for forbidden in (
+        "GDV",
+        "HBU",
+        "handover",
+        "hurdle",
+        "construction",
+        "project delivery",
+    ):
+        assert forbidden.casefold() not in generated_output.casefold()
 
 
 if __name__ == "__main__":
